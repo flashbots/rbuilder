@@ -5,8 +5,10 @@ use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest
 use alloy_rpc_types_beacon::BlsPublicKey;
 use criterion::{criterion_group, Criterion};
 use rbuilder::mev_boost::{rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner};
-use reth::primitives::SealedBlock;
-use reth_primitives::kzg::Blob;
+use reth_primitives_traits::SealedBlock;
+
+type EthSealedBlock = SealedBlock<Block<reth_ethereum_primitives::TransactionSigned>>;
+use alloy_eips::eip4844::Blob;
 use ssz::Encode;
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -66,7 +68,7 @@ fn bench_mevboost_sign(c: &mut Criterion) {
     // Generate a BlobTransactionSidecar from the blobs
     let blob = BlobTransactionSidecar::try_from_blobs(blobs).unwrap();
 
-    let sealed_block = SealedBlock::default();
+    let sealed_block = EthSealedBlock::default();
     let signer = BLSBlockSigner::test_signer();
     let mut blobs = vec![];
     for _ in 0..3 {
@@ -95,7 +97,7 @@ fn bench_mevboost_sign(c: &mut Criterion) {
 
     // Create a sealed block that is after the Cancun hard fork in Sepolia
     // this is, a timestamp higher than 1706655072
-    let sealed_block_deneb = SealedBlock::new_unhashed(Block::new(
+    let sealed_block_deneb = EthSealedBlock::new_unhashed(Block::new(
         Header {
             timestamp: 2706655072,
             blob_gas_used: Some(64),

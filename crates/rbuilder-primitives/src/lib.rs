@@ -23,10 +23,9 @@ use derivative::Derivative;
 use evm_inspector::UsedStateTrace;
 use integer_encoding::VarInt;
 use reth_ethereum_primitives::PooledTransactionVariant;
-use reth_primitives::{
-    kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    Recovered, Transaction, TransactionSigned,
-};
+use reth_primitives_traits::Recovered;
+use alloy_eips::eip4844::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF};
+use reth_ethereum_primitives::{Transaction, TransactionSigned};
 use reth_primitives_traits::{InMemorySize, SignedTransaction as _, SignerRecoverable};
 use reth_transaction_pool::{
     BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
@@ -1197,7 +1196,7 @@ mod tests {
     use super::*;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{fixed_bytes, Signature};
-    use reth_primitives::{Transaction, TransactionSigned};
+    use reth_ethereum_primitives::{Transaction, TransactionSigned};
     use uuid::uuid;
 
     #[test]

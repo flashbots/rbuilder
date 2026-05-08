@@ -14,14 +14,16 @@ use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEve
 use eth_sparse_mpt::ETHSpareMPTVersion::V2;
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{Account, BlockBody, Bytecode},
+    primitives::{Account, Bytecode},
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
+use reth_ethereum_primitives::BlockBody;
 use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_errors::ProviderResult;
-use reth_primitives::{Recovered, TransactionSigned};
+use reth_primitives_traits::Recovered;
+use reth_ethereum_primitives::TransactionSigned;
 use reth_primitives_traits::Block as _;
 use reth_provider::{
     test_utils::{create_test_provider_factory, MockNodeTypesWithDB},
@@ -137,7 +139,7 @@ impl TestChainState {
         {
             let provider = provider_factory.provider_rw()?;
             provider.insert_block(
-                Block::new(genesis_header.header().clone(), BlockBody::default())
+                &Block::new(genesis_header.header().clone(), BlockBody::default())
                     .try_into_recovered()
                     .unwrap(),
             )?;

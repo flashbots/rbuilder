@@ -1,7 +1,7 @@
 use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
-use reth_provider::StateProvider;
+use crate::building::SyncStateProvider;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     thread,
@@ -65,10 +65,9 @@ where
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
 
-            let block_state: Arc<dyn StateProvider> = self
+            let block_state: Arc<SyncStateProvider> = Arc::new(SyncStateProvider::new(self
                 .provider
-                .history_by_block_hash(self.ctx.attributes.parent)?
-                .into();
+                .history_by_block_hash(self.ctx.attributes.parent)?));
             thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {
@@ -112,7 +111,7 @@ where
     fn process_task(
         task: ConflictTask,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<SyncStateProvider>,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
@@ -156,7 +155,7 @@ where
         &mut self,
         new_groups: Vec<ConflictGroup>,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<SyncStateProvider>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();

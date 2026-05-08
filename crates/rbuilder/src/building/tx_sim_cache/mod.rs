@@ -222,7 +222,7 @@ impl TxExecutionCache {
 
     pub fn get_cached_result(
         &self,
-        mut db: impl Database<Error = ProviderError>,
+        mut db: impl Database<Error = revm::database_interface::bal::EvmDatabaseError<ProviderError>>,
         tx_hash: &B256,
         coinbase: &Address,
     ) -> Result<CachingResult, CriticalCommitOrderError> {

@@ -4,7 +4,7 @@ use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::providers::StateProvider;
+use crate::building::SyncStateProvider;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
@@ -26,7 +26,7 @@ use rbuilder_primitives::{OrderId, SimulatedOrder};
 #[derivative(Debug)]
 pub struct ResolverContext {
     #[derivative(Debug = "ignore")]
-    pub state: Arc<dyn StateProvider>,
+    pub state: Arc<SyncStateProvider>,
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub simulation_cache: Arc<SharedSimulationCache>,
@@ -43,7 +43,7 @@ impl ResolverContext {
     /// * `cache` - Optional cached reads for optimization.
     /// * `simulation_cache` - Shared cache for simulation results.
     pub fn new(
-        state: Arc<dyn StateProvider>,
+        state: Arc<SyncStateProvider>,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
@@ -126,7 +126,7 @@ impl ResolverContext {
         &mut self,
         sequence_of_orders: Vec<usize>,
         task: &ConflictTask,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<SyncStateProvider>,
     ) -> Result<(ResolutionResult, BlockState)> {
         // @todo actually reuse it for the duration of the block
         let mut local_ctx = ThreadBlockBuildingContext::default();
@@ -283,7 +283,7 @@ impl ResolverContext {
     }
 
     /// Initializes the block state, using a cached state if available.
-    fn initialize_block_state(&mut self, state_provider: Arc<dyn StateProvider>) -> BlockState {
+    fn initialize_block_state(&mut self, state_provider: Arc<SyncStateProvider>) -> BlockState {
         BlockState::new_arc(state_provider)
     }
 
@@ -450,7 +450,8 @@ mod tests {
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
     use reth::primitives::TransactionSigned;
-    use reth_primitives::{Recovered, Transaction};
+    use reth_primitives_traits::Recovered;
+    use reth_ethereum_primitives::Transaction;
     use uuid::Uuid;
 
     use super::*;

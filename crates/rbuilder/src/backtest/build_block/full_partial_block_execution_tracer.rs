@@ -274,29 +274,17 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
         };
         let (result, coinbase_delta, gas_used) = match &res {
             Ok(Ok(tx_ok)) => match tx_ok.exec_result {
-                revm::context::result::ExecutionResult::Success {
-                    reason: _,
-                    gas_used: _,
-                    gas_refunded: _,
-                    logs: _,
-                    output: _,
-                } => (
+                revm::context::result::ExecutionResult::Success { .. } => (
                     SimpleTxExecutionResult::OkSuccess,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,
                 ),
-                revm::context::result::ExecutionResult::Revert {
-                    gas_used: _,
-                    output: _,
-                } => (
+                revm::context::result::ExecutionResult::Revert { .. } => (
                     SimpleTxExecutionResult::OkRevert,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,
                 ),
-                revm::context::result::ExecutionResult::Halt {
-                    reason: _,
-                    gas_used: _,
-                } => (
+                revm::context::result::ExecutionResult::Halt { .. } => (
                     SimpleTxExecutionResult::OkHalt,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,

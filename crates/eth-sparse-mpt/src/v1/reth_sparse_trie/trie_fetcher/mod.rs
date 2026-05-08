@@ -13,7 +13,7 @@ use reth_provider::{
     providers::ConsistentDbView, BlockReader, DBProvider, DatabaseProviderFactory,
 };
 use reth_trie::{proof::Proof, MultiProof as RethMultiProof, MultiProofTargets, EMPTY_ROOT_HASH};
-use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
+use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory, LegacyKeyAdapter};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Seq};
 
@@ -78,7 +78,7 @@ where
                 let start = Instant::now();
                 let provider = self.consistent_db_view.provider_ro()?;
                 let proof = Proof::new(
-                    DatabaseTrieCursorFactory::new(provider.tx_ref()),
+                    DatabaseTrieCursorFactory::<_, LegacyKeyAdapter>::new(provider.tx_ref()),
                     DatabaseHashedCursorFactory::new(provider.tx_ref()),
                 );
                 let targets_accounts = targets.len();
@@ -105,10 +105,12 @@ where
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
+fn pad_path(path: Nibbles) -> B256 {
+    let mut v = path.to_vec();
+    v.resize(64, 0);
+    let padded = Nibbles::from_nibbles_unchecked(v);
     let mut res = B256::default();
-    path.pack_to(res.as_mut_slice());
+    padded.pack_to(res.as_mut_slice());
     res
 }
 

@@ -13,7 +13,9 @@ use crate::{
 use alloy_primitives::{Address, Bytes, B256, I256, U256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
 use rbuilder_primitives::{order_statistics::OrderStatistics, SimValue, SimulatedOrder};
-use reth_primitives::SealedBlock;
+use reth_primitives_traits::SealedBlock;
+
+type EthSealedBlock = SealedBlock<reth_ethereum_primitives::Block>;
 use revm::database::BundleState;
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
@@ -98,7 +100,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
         let block = Block {
             builder_name: "BlockBuildingHelper".to_string(),
             trace: self.built_block_trace.clone(),
-            sealed_block: SealedBlock::default(),
+            sealed_block: EthSealedBlock::default(),
             txs_blobs_sidecars: Vec::new(),
             execution_requests: Default::default(),
             bid_adjustments: Default::default(),

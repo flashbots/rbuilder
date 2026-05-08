@@ -42,17 +42,15 @@ use rbuilder_primitives::{
     mev_boost::BidAdjustmentData, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::{
-    payload::PayloadId,
-    primitives::{Block, SealedBlock},
-};
+use reth::payload::PayloadId;
+use reth_ethereum_primitives::Block;
+use reth_primitives_traits::SealedBlock;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
-use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
-use reth_payload_builder::EthPayloadBuilderAttributes;
-use reth_primitives::BlockBody;
+use reth_node_api::payload_id;
+use reth_ethereum_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 use revm::{
     context_interface::result::InvalidTransaction, database::states::bundle_state::BundleRetention,
@@ -96,6 +94,62 @@ pub use self::{
 
 #[cfg(test)]
 pub use conflict::*;
+
+/// Local replacement for the removed `reth_ethereum_engine_primitives::EthPayloadBuilderAttributes`.
+/// Contains all the fields needed for block building from payload attributes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EthPayloadBuilderAttributes {
+    /// Id of the payload
+    pub id: PayloadId,
+    /// Parent block to build the payload on top
+    pub parent: B256,
+    /// Unix timestamp for the generated payload
+    pub timestamp: u64,
+    /// Address of the recipient for collecting transaction fee
+    pub suggested_fee_recipient: Address,
+    /// Randomness value for the generated payload
+    pub prev_randao: B256,
+    /// Withdrawals for the generated payload
+    pub withdrawals: Withdrawals,
+    /// Root of the parent beacon block
+    pub parent_beacon_block_root: Option<B256>,
+}
+
+impl EthPayloadBuilderAttributes {
+    /// Creates a new payload builder attributes from the parent hash and payload attributes.
+    pub fn new(parent: B256, attributes: alloy_rpc_types_engine::PayloadAttributes) -> Self {
+        let id = payload_id(&parent, &attributes);
+        Self {
+            id,
+            parent,
+            timestamp: attributes.timestamp,
+            suggested_fee_recipient: attributes.suggested_fee_recipient,
+            prev_randao: attributes.prev_randao,
+            withdrawals: attributes.withdrawals.unwrap_or_default().into(),
+            parent_beacon_block_root: attributes.parent_beacon_block_root,
+        }
+    }
+
+    /// Returns the timestamp.
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+
+    /// Returns the suggested fee recipient.
+    pub fn suggested_fee_recipient(&self) -> Address {
+        self.suggested_fee_recipient
+    }
+
+    /// Returns the prev randao.
+    pub fn prev_randao(&self) -> B256 {
+        self.prev_randao
+    }
+
+    /// Returns the parent beacon block root.
+    pub fn parent_beacon_block_root(&self) -> Option<B256> {
+        self.parent_beacon_block_root
+    }
+}
 
 /// Estimated overhead for the whole block header rlp length
 const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
@@ -148,12 +202,10 @@ impl BlockBuildingContext {
         mev_blocker_price: U256,
         adjustment_fee_payers: ahash::HashSet<Address>,
     ) -> Option<BlockBuildingContext> {
-        let attributes = EthPayloadBuilderAttributes::try_new(
+        let attributes = EthPayloadBuilderAttributes::new(
             attributes.data.parent_block_hash,
             attributes.data.payload_attributes.clone(),
-            EngineApiMessageVersion::default() as u8,
-        )
-        .expect("PayloadBuilderAttributes::try_new");
+        );
         let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
         let gas_limit = calculate_block_gas_limit(
             parent.gas_limit,
@@ -171,6 +223,7 @@ impl BlockBuildingContext {
                     gas_limit,
                     withdrawals: Some(attributes.withdrawals.clone()),
                     parent_beacon_block_root: attributes.parent_beacon_block_root,
+                    extra_data: Default::default(),
                 },
             )
             .ok()?;
@@ -607,7 +660,7 @@ impl ExecutionError {
 
 pub struct FinalizeResult {
     /// Sealed block.
-    pub sealed_block: SealedBlock,
+    pub sealed_block: SealedBlock<Block>,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
@@ -946,11 +999,15 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                         withdrawal.amount_wei().to::<u128>();
                 }
             }
-            db.db()
-                .increment_balances(balance_increments)
-                .map_err(|_| {
+            for (address, balance) in balance_increments {
+                if balance == 0 {
+                    continue;
+                }
+                let cache_account = db.db().load_cache_account(address).map_err(|_| {
                     BlockExecutionError::Validation(BlockValidationError::IncrementBalanceFailed)
                 })?;
+                cache_account.increment_balance(balance);
+            }
             Some(proofs::calculate_withdrawals_root(
                 &ctx.attributes.withdrawals,
             ))

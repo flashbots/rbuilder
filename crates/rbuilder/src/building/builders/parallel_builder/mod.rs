@@ -17,7 +17,7 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
-use reth_provider::StateProvider;
+use crate::building::SyncStateProvider;
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::{
@@ -123,10 +123,9 @@ where
         let results_aggregator =
             ResultsAggregator::new(group_result_receiver, Arc::clone(&best_results));
 
-        let block_state = input
+        let block_state = Arc::new(SyncStateProvider::new(input
             .provider
-            .history_by_block_hash(input.ctx.attributes.parent)?
-            .into();
+            .history_by_block_hash(input.ctx.attributes.parent)?));
 
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
@@ -329,10 +328,9 @@ where
 
     let setup_duration = setup_start.elapsed();
 
-    let block_state: Arc<dyn StateProvider> = input
+    let block_state: Arc<SyncStateProvider> = Arc::new(SyncStateProvider::new(input
         .provider
-        .history_by_block_hash(input.ctx.attributes.parent)?
-        .into();
+        .history_by_block_hash(input.ctx.attributes.parent)?));
 
     // Group processing
     let processing_start = Instant::now();

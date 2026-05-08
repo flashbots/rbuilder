@@ -4,7 +4,8 @@ use super::{
 };
 use alloy_consensus::TxLegacy;
 use alloy_primitives::{Address, BlockHash, Signature, TxHash, B256, U256};
-use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use reth_primitives_traits::Recovered;
+use reth_ethereum_primitives::{Transaction, TransactionSigned};
 use uuid::Uuid;
 
 /// TestDataGenerator allows you to create unique test objects with unique content, it tries to use different numbers for every field it sets since it may help debugging.

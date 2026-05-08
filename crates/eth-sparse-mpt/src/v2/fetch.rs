@@ -18,7 +18,7 @@ use reth_trie::{
     proof::{Proof, StorageProof},
     MultiProofTargets,
 };
-use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
+use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory, LegacyKeyAdapter};
 
 use super::SharedCacheV2;
 
@@ -80,7 +80,7 @@ impl MissingNodesFetcher {
                     }
 
                     let proof = StorageProof::new_hashed(
-                        DatabaseTrieCursorFactory::new(provider.tx_ref()),
+                        DatabaseTrieCursorFactory::<_, LegacyKeyAdapter>::new(provider.tx_ref()),
                         DatabaseHashedCursorFactory::new(provider.tx_ref()),
                         hashed_address,
                     );
@@ -123,7 +123,7 @@ impl MissingNodesFetcher {
         }
 
         let proof = Proof::new(
-            DatabaseTrieCursorFactory::new(provider.tx_ref()),
+            DatabaseTrieCursorFactory::<_, LegacyKeyAdapter>::new(provider.tx_ref()),
             DatabaseHashedCursorFactory::new(provider.tx_ref()),
         );
         let targets = MultiProofTargets::accounts(std::mem::take(&mut self.account_proof_targets));
@@ -149,9 +149,11 @@ impl MissingNodesFetcher {
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
+fn pad_path(path: Nibbles) -> B256 {
+    let mut v = path.to_vec();
+    v.resize(64, 0);
+    let padded = Nibbles::from_nibbles_unchecked(v);
     let mut res = B256::default();
-    path.pack_to(res.as_mut_slice());
+    padded.pack_to(res.as_mut_slice());
     res
 }
