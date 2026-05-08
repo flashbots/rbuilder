@@ -31,7 +31,7 @@ reth-trie.workspace = true
 reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
-reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
@@ -39,6 +39,7 @@ reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
 revm.workspace = true
 reth-node-ethereum.workspace = true
+reth-tasks.workspace = true
 
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
@@ -58,11 +59,14 @@ alloy-eips.workspace = true
 alloy-trie.workspace = true
 
 ethereum_ssz.workspace = true
+lighthouse_types.workspace = true
+lighthouse_bls.workspace = true
+lighthouse_ssz_types.workspace = true
 
 test_utils = { path = "src/test_utils" }
 metrics_macros = { path = "src/telemetry/metrics_macros" }
 
-reqwest = { workspace = true, features = ["blocking"] }
+reqwest = { workspace = true, features = ["blocking", "json"] }
 serde_with = { workspace = true, features = ["time_0_3"] }
 url.workspace = true
 sqlx = { version = "0.7.1", features = [
