@@ -162,6 +162,35 @@ impl Client {
         Ok(genesis_response.data)
     }
 
+    /// Fetch the active fork version at head
+    pub async fn get_head_fork_version(&self) -> eyre::Result<[u8; 4]> {
+        let url = self
+            .endpoint_url
+            .join("eth/v1/beacon/states/head/fork")
+            .map_err(|e| eyre::eyre!("Invalid URL: {}", e))?;
+
+        let response = reqwest::get(url).await?;
+        if !response.status().is_success() {
+            return Err(eyre::eyre!("Failed to get fork: {}", response.status()));
+        }
+
+        let val: serde_json::Value = response.json().await?;
+        let current_version = val
+            .get("data")
+            .and_then(|d| d.get("current_version"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| eyre::eyre!("No current_version in fork response"))?;
+
+        let s = current_version.strip_prefix("0x").unwrap_or(current_version);
+        let bytes = hex::decode(s).map_err(|e| eyre::eyre!("Invalid fork hex: {}", e))?;
+        if bytes.len() != 4 {
+            return Err(eyre::eyre!("Expected 4-byte fork version, got {}", bytes.len()));
+        }
+        let mut arr = [0u8; 4];
+        arr.copy_from_slice(&bytes);
+        Ok(arr)
+    }
+
     /// Fetch validator data from the beacon chain by pubkey or index.
     ///
     /// The `validator_id` can be either:
@@ -206,6 +235,59 @@ impl Client {
         self.get_validator(&pubkey_hex).await
     }
 
+    /// Fetch a builder's index from the beacon state by BLS public key.
+    pub async fn get_builder_index_by_pubkey(&self, pubkey: &[u8]) -> eyre::Result<u64> {
+        let pubkey_hex = format!("0x{}", hex::encode(pubkey));
+
+        let url = self
+            .endpoint_url
+            .join("eth/v2/debug/beacon/states/head")
+            .map_err(|e| eyre::eyre!("Invalid URL: {}", e))?;
+
+        let response = reqwest::Client::new()
+            .get(url)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(eyre::eyre!(
+                "Failed to fetch beacon state: {} - {}",
+                status,
+                body
+            ));
+        }
+
+        // parse only the builders field from the state to avoid deserializing everything
+        let state_response: serde_json::Value = response.json().await?;
+        let builders = state_response
+            .get("data")
+            .and_then(|d| d.get("builders"))
+            .and_then(|b| b.as_array())
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Beacon state does not contain builders field. \
+                     Is the chain at Gloas fork yet?"
+                )
+            })?;
+
+        for (index, builder) in builders.iter().enumerate() {
+            if let Some(pk) = builder.get("pubkey").and_then(|p| p.as_str()) {
+                if pk == pubkey_hex {
+                    return Ok(index as u64);
+                }
+            }
+        }
+
+        Err(eyre::eyre!(
+            "Builder with pubkey {} not found in beacon state builders registry. \
+             Make sure the builder has been deposited with BUILDER_WITHDRAWAL_PREFIX (0x03).",
+            pubkey_hex
+        ))
+    }
+
     /// Submit a signed execution payload bid to p2p via the beacon node.
     pub async fn submit_execution_payload_bid(
         &self,
@@ -213,7 +295,7 @@ impl Client {
     ) -> eyre::Result<()> {
         let url = self
             .endpoint_url
-            .join("eth/v1/beacon/execution_payload_bid")
+            .join("eth/v1/beacon/execution_payload/bid")
             .map_err(|e| eyre::eyre!("Invalid URL: {}", e))?;
 
         let response = reqwest::Client::new()
@@ -240,16 +322,25 @@ impl Client {
     pub async fn submit_execution_payload_envelope(
         &self,
         envelope: &SignedExecutionPayloadEnvelope,
+        blobs: &[alloy_primitives::Bytes],
+        cell_proofs: &[alloy_primitives::Bytes],
     ) -> eyre::Result<()> {
         let url = self
             .endpoint_url
             .join("eth/v1/beacon/execution_payload_envelope")
             .map_err(|e| eyre::eyre!("Invalid URL: {}", e))?;
 
+        let body = PublishEnvelopeRequest {
+            message: &envelope.message,
+            signature: &envelope.signature,
+            blobs: blobs.iter().map(hex_encode).collect(),
+            cell_proofs: cell_proofs.iter().map(hex_encode).collect(),
+        };
+
         let response = reqwest::Client::new()
             .post(url)
             .header("Eth-Consensus-Version", "gloas")
-            .json(envelope)
+            .json(&body)
             .send()
             .await?;
 
@@ -269,9 +360,7 @@ impl Client {
     /// Construct an unsigned execution payload envelope via the beacon node.
     ///
     /// Returns a complete unsigned envelope ready for the builder to sign.
-    // TODO: I am using the beacon api from this PR not merged yet
-    // please keep monitor it and see if it gets merged
-    // : https://github.com/ethereum/beacon-APIs/pull/584
+    // TODO: replace with https://github.com/ethereum/consensus-specs/pull/5094
     pub async fn construct_execution_payload_envelope(
         &self,
         beacon_block_root: B256,
@@ -284,12 +373,9 @@ impl Client {
             .map_err(|e| eyre::eyre!("Invalid URL: {}", e))?;
 
         let request_body = ConstructEnvelopeRequest {
-            version: "gloas".to_string(),
-            data: ConstructEnvelopeData {
-                beacon_block_root,
-                execution_payload: payload.clone(),
-                execution_requests: execution_requests.clone(),
-            },
+            beacon_block_root,
+            execution_payload: payload.clone(),
+            execution_requests: execution_requests.clone(),
         };
 
         let response = reqwest::Client::new()
@@ -419,16 +505,25 @@ pub struct HeadEvent {
 /// Request body for POST /eth/v1/builder/execution_payload_envelope.
 #[derive(Debug, Clone, Serialize)]
 struct ConstructEnvelopeRequest {
-    version: String,
-    data: ConstructEnvelopeData,
-}
-
-/// Data payload for the envelope construction request.
-#[derive(Debug, Clone, Serialize)]
-struct ConstructEnvelopeData {
     beacon_block_root: B256,
     execution_payload: alloy_rpc_types_engine::ExecutionPayloadV3,
     execution_requests: ExecutionRequests,
+}
+
+/// Request body for POST /eth/v1/beacon/execution_payload_envelope.
+/// TODO: verify the struct
+#[derive(Debug, Clone, Serialize)]
+struct PublishEnvelopeRequest<'a> {
+    message: &'a ExecutionPayloadEnvelope,
+    signature: &'a alloy_rpc_types_beacon::BlsSignature,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    blobs: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    cell_proofs: Vec<String>,
+}
+
+fn hex_encode(b: &alloy_primitives::Bytes) -> String {
+    format!("0x{}", hex::encode(b.as_ref()))
 }
 
 /// Response from POST /eth/v1/builder/execution_payload_envelope.
