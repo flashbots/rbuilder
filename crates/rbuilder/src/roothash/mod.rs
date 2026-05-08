@@ -5,7 +5,7 @@ use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
 use reth_provider::{
     providers::OverlayStateProviderFactory, BlockReader, DatabaseProviderFactory,
-    HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader, TrieReader,
+    HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader,
 };
 use reth_trie::TrieInput;
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
@@ -81,7 +81,13 @@ pub fn calculate_account_proofs<P>(
 ) -> Result<utils::HashMap<Address, Vec<Bytes>>, RootHashError>
 where
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                + StageCheckpointReader
+                + PruneCheckpointReader
+                + reth_provider::BlockNumReader
+                + reth_provider::ChangeSetReader
+                + reth_provider::StorageChangeSetReader
+                + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone
@@ -119,21 +125,28 @@ fn calculate_parallel_root_hash<P, HasherType>(
     provider: P,
 ) -> Result<B256, ParallelStateRootError>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Send + Sync,
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                + StageCheckpointReader
+                + PruneCheckpointReader
+                + reth_provider::BlockNumReader
+                + reth_provider::ChangeSetReader
+                + reth_provider::StorageChangeSetReader
+                + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone
         + 'static,
 {
-    let overlay = OverlayStateProviderFactory::new(provider);
+    let overlay = OverlayStateProviderFactory::new(provider, Default::default());
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let parallel_root_calculator = ParallelStateRoot::new(
         overlay,
         TrieInput::from_state(hashed_post_state)
             .prefix_sets
             .freeze(),
+        reth_tasks::Runtime::test(),
     );
     parallel_root_calculator.incremental_root()
 }
@@ -150,9 +163,15 @@ pub fn calculate_state_root<P, HasherType>(
     config: &RootHashContext,
 ) -> Result<B256, RootHashError>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Send + Sync,
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                + StageCheckpointReader
+                + PruneCheckpointReader
+                + reth_provider::BlockNumReader
+                + reth_provider::ChangeSetReader
+                + reth_provider::StorageChangeSetReader
+                + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone

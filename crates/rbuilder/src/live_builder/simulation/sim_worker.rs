@@ -51,7 +51,7 @@ pub fn run_sim_worker<P>(
 
         let state_provider =
             match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => Arc::new(state_provider),
+                Ok(state_provider) => Arc::new(crate::building::SyncStateProvider::new(state_provider)),
                 Err(err) => {
                     error!(?err, "Error while getting state for block");
                     continue 'main;
