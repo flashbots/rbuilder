@@ -2,8 +2,8 @@ use ahash::HashMap;
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
 use alloy_rpc_types::AccessList;
-use reth_primitives_traits::Recovered;
 use reth_ethereum_primitives::TransactionSigned;
+use reth_primitives_traits::Recovered;
 use revm::{
     bytecode::opcode,
     context::ContextTr,

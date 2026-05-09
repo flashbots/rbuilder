@@ -163,7 +163,9 @@ mod test {
 
         let tx = TransactionRequest {
             max_fee_per_blob_gas: Some(gas_price),
-            sidecar: Some(alloy_eips::eip7594::BlobTransactionSidecarVariant::Eip4844(sidecar)),
+            sidecar: Some(alloy_eips::eip7594::BlobTransactionSidecarVariant::Eip4844(
+                sidecar,
+            )),
             ..TransactionRequest::default()
                 .with_to(alice)
                 .with_nonce(0)

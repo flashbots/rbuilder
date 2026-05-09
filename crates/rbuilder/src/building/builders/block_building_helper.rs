@@ -1,5 +1,5 @@
-use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
 use crate::building::SyncStateProvider;
+use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
 use std::{
     cmp::max,
     sync::Arc,

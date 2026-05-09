@@ -156,8 +156,9 @@ impl LandedBlockInfo {
             .config
             .base_config()
             .create_reth_provider_factory(true)?;
-        let block_state = std::sync::Arc::new(rbuilder::building::SyncStateProvider::new(provider
-            .history_by_block_hash(ctx.attributes.parent)?));
+        let block_state = std::sync::Arc::new(rbuilder::building::SyncStateProvider::new(
+            provider.history_by_block_hash(ctx.attributes.parent)?,
+        ));
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
             BuiltBlockId::ZERO,

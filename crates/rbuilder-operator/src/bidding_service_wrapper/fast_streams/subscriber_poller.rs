@@ -93,7 +93,10 @@ impl<T: std::fmt::Debug + WithCreationTime + ZeroCopySend + Copy> SubscriberPoll
         }
         let delta = offset_datetime_to_timestamp_us(OffsetDateTime::now_utc()) - start;
         self.poll_duration_stats.add_duration(delta);
-        if self.total_samples % Self::METRICS_TRACE_INTERVAL == 0 {
+        if self
+            .total_samples
+            .is_multiple_of(Self::METRICS_TRACE_INTERVAL)
+        {
             info!(
                 name = self.name,
                 avg_flight_time_us = self.flight_stats.average_duration(),

@@ -30,8 +30,8 @@ use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_provider::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
+use reth_provider::StaticFileSegment;
 use serde::{Deserialize, Deserializer};
 use serde_with::serde_as;
 use std::{
@@ -596,10 +596,18 @@ pub fn create_provider_factory(
         }
     };
 
-    let rocksdb_provider = reth_provider::providers::RocksDBProvider::builder(&reth_db_path).with_default_tables().build()?;
+    let rocksdb_provider = reth_provider::providers::RocksDBProvider::builder(&reth_db_path)
+        .with_default_tables()
+        .build()?;
     let runtime = reth_tasks::Runtime::test();
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config, rocksdb_provider, runtime)?;
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        root_hash_config,
+        rocksdb_provider,
+        runtime,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -673,7 +681,11 @@ mod test {
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
         let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
-        let rocksdb_provider = reth_provider::providers::RocksDBProvider::builder(data_dir.db().as_path()).with_default_tables().build().unwrap();
+        let rocksdb_provider =
+            reth_provider::providers::RocksDBProvider::builder(data_dir.db().as_path())
+                .with_default_tables()
+                .build()
+                .unwrap();
         let runtime = reth_tasks::Runtime::test();
         let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
@@ -681,7 +693,8 @@ mod test {
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
             rocksdb_provider,
             runtime,
-        ).unwrap();
+        )
+        .unwrap();
         init_genesis(&provider_factory).unwrap();
         drop(provider_factory);
 

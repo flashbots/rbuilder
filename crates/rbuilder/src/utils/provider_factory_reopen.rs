@@ -20,8 +20,8 @@ use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
     BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
-    RocksDBProviderFactory,
+    PruneCheckpointReader, RocksDBProviderFactory, StageCheckpointReader, StateProviderBox,
+    StaticFileProviderFactory,
 };
 use revm::database::BundleState;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc};
@@ -62,7 +62,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
             rocksdb_provider.clone(),
             runtime.clone(),
-        ).map_err(|e| reth_errors::RethError::msg(e.to_string()))?;
+        )
+        .map_err(|e| reth_errors::RethError::msg(e.to_string()))?;
 
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
@@ -119,7 +120,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     debug!(?err, "Provider factory is inconsistent, reopening");
                     inc_provider_reopen_counter();
 
-                    if let (Some(rocksdb), Some(runtime)) = (&self.rocksdb_provider, &self.runtime) {
+                    if let (Some(rocksdb), Some(runtime)) = (&self.rocksdb_provider, &self.runtime)
+                    {
                         *provider_factory = ProviderFactory::new(
                             provider_factory.db_ref().clone(),
                             self.chain_spec.clone(),
@@ -127,7 +129,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                                 .unwrap(),
                             rocksdb.clone(),
                             runtime.clone(),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     } else {
                         let _ = provider_factory.sync_providers_if_needed();
                     }
@@ -312,12 +315,12 @@ where
     HasherType: HashedPostStateProvider + Send + Sync,
     T: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + reth_provider::BlockNumReader
-                + reth_provider::ChangeSetReader
-                + reth_provider::StorageChangeSetReader
-                + reth_provider::StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone

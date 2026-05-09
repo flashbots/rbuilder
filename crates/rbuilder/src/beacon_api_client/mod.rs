@@ -181,10 +181,15 @@ impl Client {
             .and_then(|v| v.as_str())
             .ok_or_else(|| eyre::eyre!("No current_version in fork response"))?;
 
-        let s = current_version.strip_prefix("0x").unwrap_or(current_version);
+        let s = current_version
+            .strip_prefix("0x")
+            .unwrap_or(current_version);
         let bytes = hex::decode(s).map_err(|e| eyre::eyre!("Invalid fork hex: {}", e))?;
         if bytes.len() != 4 {
-            return Err(eyre::eyre!("Expected 4-byte fork version, got {}", bytes.len()));
+            return Err(eyre::eyre!(
+                "Expected 4-byte fork version, got {}",
+                bytes.len()
+            ));
         }
         let mut arr = [0u8; 4];
         arr.copy_from_slice(&bytes);

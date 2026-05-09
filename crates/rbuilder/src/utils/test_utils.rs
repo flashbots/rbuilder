@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, Signature, B256, I256, U256};
 use rbuilder_primitives::{OrderId, TransactionSignedEcRecoveredWithBlobs};
-use reth_primitives_traits::Recovered;
 use reth_ethereum_primitives::{Transaction, TransactionSigned};
+use reth_primitives_traits::Recovered;
 
 pub fn order_id(id: u64) -> OrderId {
     OrderId::Tx(hash(id))

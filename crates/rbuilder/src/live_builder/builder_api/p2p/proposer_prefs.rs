@@ -10,6 +10,12 @@ pub struct ProposerPreferencesCache {
     prefs: RwLock<HashMap<u64, ProposerPreferences>>,
 }
 
+impl Default for ProposerPreferencesCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProposerPreferencesCache {
     pub fn new() -> Self {
         Self {

@@ -195,8 +195,9 @@ impl TestSetup {
         )
     }
     fn try_commit_order(&mut self) -> eyre::Result<Result<ExecutionResult, ExecutionError>> {
-        let state_provider: Arc<SyncStateProvider> =
-            Arc::new(SyncStateProvider::new(self.test_chain.provider_factory().latest()?));
+        let state_provider: Arc<SyncStateProvider> = Arc::new(SyncStateProvider::new(
+            self.test_chain.provider_factory().latest()?,
+        ));
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
         let sim_order = SimulatedOrder {

@@ -1,4 +1,7 @@
-use super::{BlockBuildingContext, BlockState, PartialBlockFork, SyncStateProvider, ThreadBlockBuildingContext};
+use super::{
+    BlockBuildingContext, BlockState, PartialBlockFork, SyncStateProvider,
+    ThreadBlockBuildingContext,
+};
 use crate::building::BlockBuildingSpaceState;
 use alloy_primitives::{Address, U256};
 use itertools::Itertools;

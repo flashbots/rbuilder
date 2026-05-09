@@ -44,8 +44,8 @@ use reth::transaction_pool::{
     TransactionPool, TransactionValidator,
 };
 use reth_chainspec::ChainSpec;
-use reth_primitives_traits::Recovered;
 use reth_ethereum_primitives::TransactionSigned;
+use reth_primitives_traits::Recovered;
 use std::{
     cmp::min,
     fmt::Debug,
@@ -175,10 +175,7 @@ where
     ///
     /// When set, the service will be spawned when `run()` is called and will
     /// broadcast bids via p2p gossip and reveal payloads after bid inclusion.
-    pub fn with_epbs_p2p_service(
-        self,
-        service: builder_api::EpbsP2PService,
-    ) -> Self {
+    pub fn with_epbs_p2p_service(self, service: builder_api::EpbsP2PService) -> Self {
         Self {
             epbs_p2p_service: Some(service),
             ..self
@@ -311,8 +308,7 @@ where
             match self.provider.header(&parent_hash) {
                 Ok(Some(header)) => {
                     let resolved_number = header.number;
-                    let attr_number =
-                        payload.payload_attributes_event.data.parent_block_number;
+                    let attr_number = payload.payload_attributes_event.data.parent_block_number;
                     if attr_number != resolved_number {
                         debug!(
                             ?parent_hash,
@@ -320,8 +316,7 @@ where
                             resolved_number,
                             "Resolved parent_block_number from EL (Gloas/EPBS quirk)"
                         );
-                        payload.payload_attributes_event.data.parent_block_number =
-                            resolved_number;
+                        payload.payload_attributes_event.data.parent_block_number = resolved_number;
                     }
                 }
                 Ok(None) => {

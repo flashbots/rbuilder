@@ -24,7 +24,6 @@ use rbuilder::{
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives_traits::SignerRecoverable;
-use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
 

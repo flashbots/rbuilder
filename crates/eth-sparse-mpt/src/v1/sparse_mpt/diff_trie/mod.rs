@@ -101,10 +101,9 @@ fn try_get_node_mut<'a>(
     ptr: u64,
     path: &Nibbles,
 ) -> Result<&'a mut DiffTrieNode, ErrSparseNodeNotFound> {
-    nodes.get_mut(&ptr).ok_or_else(|| ErrSparseNodeNotFound {
-        path: path.clone(),
-        ptr,
-    })
+    nodes
+        .get_mut(&ptr)
+        .ok_or(ErrSparseNodeNotFound { path: *path, ptr })
 }
 
 pub fn get_new_ptr(ptrs: &mut u64) -> u64 {
@@ -238,13 +237,10 @@ impl DiffTrie {
                     let n = c.step_into_branch(branch);
 
                     if branch.has_child(n) {
-                        let child =
-                            branch
-                                .get_diff_child_mut(n)
-                                .ok_or_else(|| ErrSparseNodeNotFound {
-                                    path: c.current_path.clone(),
-                                    ptr: u64::MAX,
-                                })?;
+                        let child = branch.get_diff_child_mut(n).ok_or(ErrSparseNodeNotFound {
+                            path: c.current_path,
+                            ptr: u64::MAX,
+                        })?;
                         child.mark_dirty();
                         continue;
                     } else {
@@ -313,9 +309,9 @@ impl DiffTrie {
                         return Err(DeletionError::KeyNotFound);
                     }
 
-                    let child = branch.get_diff_child_mut(n).ok_or_else(|| {
+                    let child = branch.get_diff_child_mut(n).ok_or({
                         DeletionError::NodeNotFound(ErrSparseNodeNotFound {
-                            path: c.current_path.clone(),
+                            path: c.current_path,
                             ptr: u64::MAX,
                         })
                     })?;
@@ -332,9 +328,10 @@ impl DiffTrie {
                             .other_child_nibble(n)
                             .expect("other child must exist");
                         if branch.get_diff_child(other_child_nibble).is_none() {
-                            let mut other_child_path = c.current_path.clone();
+                            let mut other_child_path = c.current_path;
                             if !other_child_path.is_empty() {
-                                other_child_path.set_at(other_child_path.len() - 1, other_child_nibble);
+                                other_child_path
+                                    .set_at(other_child_path.len() - 1, other_child_nibble);
                             }
                             return Err(DeletionError::NodeNotFound(ErrSparseNodeNotFound {
                                 path: other_child_path,
@@ -428,7 +425,7 @@ impl DiffTrie {
                             DiffTrieNodeKind::Leaf(leaf_below),
                         ) => {
                             // we just replace extension node by merging its path into leaf with child_nibble
-                            let mut new_leaf_key = ext_above.key().clone();
+                            let mut new_leaf_key = *ext_above.key();
                             new_leaf_key.push(*child_nibble);
                             new_leaf_key.extend(leaf_below.key());
 

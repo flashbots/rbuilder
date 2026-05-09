@@ -18,13 +18,13 @@ use reth::{
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
-use reth_ethereum_primitives::BlockBody;
 use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_errors::ProviderResult;
-use reth_primitives_traits::Recovered;
+use reth_ethereum_primitives::BlockBody;
 use reth_ethereum_primitives::TransactionSigned;
 use reth_primitives_traits::Block as _;
+use reth_primitives_traits::Recovered;
 use reth_provider::{
     test_utils::{create_test_provider_factory, MockNodeTypesWithDB},
     BlockWriter,
@@ -348,7 +348,7 @@ impl TestBlockContextBuilder {
     ) -> Self {
         TestBlockContextBuilder {
             parent_gas_limit: 30_000_000,
-            parent_timestamp: block_args.timestamp.checked_sub(12).unwrap_or_default(),
+            parent_timestamp: block_args.timestamp.saturating_sub(12),
             block_number: block_args.number,
             parent_base_fee_per_gas: 1,
             builder_signer,
@@ -395,7 +395,7 @@ impl TestBlockContextBuilder {
                 withdrawals_root: None,
                 logs_bloom: Default::default(),
                 difficulty: Default::default(),
-                number: self.block_number.checked_sub(1).unwrap_or_default(),
+                number: self.block_number.saturating_sub(1),
                 gas_limit: self.parent_gas_limit,
                 gas_used: self.parent_gas_used,
                 timestamp: self.parent_timestamp,

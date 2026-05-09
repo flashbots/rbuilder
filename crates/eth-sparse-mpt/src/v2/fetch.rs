@@ -39,12 +39,12 @@ impl MissingNodesFetcher {
             .storage_proof_targets
             .entry(*hashed_address)
             .or_default();
-        entry.0.insert(pad_path(node.clone()));
+        entry.0.insert(pad_path(node));
         entry.1.push(node);
     }
 
     pub fn add_missing_account_node(&mut self, node: Nibbles) {
-        self.account_proof_targets.push(pad_path(node.clone()));
+        self.account_proof_targets.push(pad_path(node));
         self.account_proof_requested_nodes.push(node);
     }
 
@@ -90,7 +90,7 @@ impl MissingNodesFetcher {
                     *fetched_nodes.lock() += requested_proofs.len();
                     for requested_proof in requested_proofs {
                         let proof_for_node = storge_multiproof.subtree.matching_nodes_sorted(
-                            &convert_nibbles_to_reth_nybbles(requested_proof.clone()),
+                            &convert_nibbles_to_reth_nybbles(requested_proof),
                         );
                         let reth_proof_for_node = proof_for_node
                             .into_iter()
@@ -133,7 +133,7 @@ impl MissingNodesFetcher {
         for requested_node in self.account_proof_requested_nodes.drain(..) {
             let proof_for_node = multiproof
                 .account_subtree
-                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node.clone()));
+                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node));
 
             let reth_proof_for_node = proof_for_node
                 .into_iter()

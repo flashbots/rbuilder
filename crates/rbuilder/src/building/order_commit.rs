@@ -22,8 +22,8 @@ use reth::{
     consensus_common::validation::MAX_RLP_BLOCK_SIZE, revm::database::StateProviderDatabase,
 };
 use reth_errors::ProviderError;
-use reth_evm::{Evm, EvmEnv};
 use reth_ethereum_primitives::Receipt;
+use reth_evm::{Evm, EvmEnv};
 use reth_provider::{StateProvider, StateProviderBox};
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
@@ -81,19 +81,29 @@ impl reth_provider::BlockHashReader for SyncStateProvider {
     fn block_hash(&self, number: u64) -> reth_errors::ProviderResult<Option<B256>> {
         self.0.block_hash(number)
     }
-    fn canonical_hashes_range(&self, start: u64, end: u64) -> reth_errors::ProviderResult<Vec<B256>> {
+    fn canonical_hashes_range(
+        &self,
+        start: u64,
+        end: u64,
+    ) -> reth_errors::ProviderResult<Vec<B256>> {
         self.0.canonical_hashes_range(start, end)
     }
 }
 
 impl reth_provider::AccountReader for SyncStateProvider {
-    fn basic_account(&self, address: &Address) -> reth_errors::ProviderResult<Option<reth_primitives_traits::Account>> {
+    fn basic_account(
+        &self,
+        address: &Address,
+    ) -> reth_errors::ProviderResult<Option<reth_primitives_traits::Account>> {
         self.0.basic_account(address)
     }
 }
 
 impl reth_provider::BytecodeReader for SyncStateProvider {
-    fn bytecode_by_hash(&self, code_hash: &B256) -> reth_errors::ProviderResult<Option<reth_primitives_traits::Bytecode>> {
+    fn bytecode_by_hash(
+        &self,
+        code_hash: &B256,
+    ) -> reth_errors::ProviderResult<Option<reth_primitives_traits::Bytecode>> {
         self.0.bytecode_by_hash(code_hash)
     }
 }
@@ -102,37 +112,73 @@ impl reth_provider::StateRootProvider for SyncStateProvider {
     fn state_root(&self, state: reth_trie::HashedPostState) -> reth_errors::ProviderResult<B256> {
         self.0.state_root(state)
     }
-    fn state_root_from_nodes(&self, input: reth_trie::TrieInput) -> reth_errors::ProviderResult<B256> {
+    fn state_root_from_nodes(
+        &self,
+        input: reth_trie::TrieInput,
+    ) -> reth_errors::ProviderResult<B256> {
         self.0.state_root_from_nodes(input)
     }
-    fn state_root_with_updates(&self, state: reth_trie::HashedPostState) -> reth_errors::ProviderResult<(B256, reth_trie::updates::TrieUpdates)> {
+    fn state_root_with_updates(
+        &self,
+        state: reth_trie::HashedPostState,
+    ) -> reth_errors::ProviderResult<(B256, reth_trie::updates::TrieUpdates)> {
         self.0.state_root_with_updates(state)
     }
-    fn state_root_from_nodes_with_updates(&self, input: reth_trie::TrieInput) -> reth_errors::ProviderResult<(B256, reth_trie::updates::TrieUpdates)> {
+    fn state_root_from_nodes_with_updates(
+        &self,
+        input: reth_trie::TrieInput,
+    ) -> reth_errors::ProviderResult<(B256, reth_trie::updates::TrieUpdates)> {
         self.0.state_root_from_nodes_with_updates(input)
     }
 }
 
 impl reth_provider::StorageRootProvider for SyncStateProvider {
-    fn storage_root(&self, address: Address, hashed_storage: reth_trie::HashedStorage) -> reth_errors::ProviderResult<B256> {
+    fn storage_root(
+        &self,
+        address: Address,
+        hashed_storage: reth_trie::HashedStorage,
+    ) -> reth_errors::ProviderResult<B256> {
         self.0.storage_root(address, hashed_storage)
     }
-    fn storage_proof(&self, address: Address, slot: B256, hashed_storage: reth_trie::HashedStorage) -> reth_errors::ProviderResult<reth_trie::StorageProof> {
+    fn storage_proof(
+        &self,
+        address: Address,
+        slot: B256,
+        hashed_storage: reth_trie::HashedStorage,
+    ) -> reth_errors::ProviderResult<reth_trie::StorageProof> {
         self.0.storage_proof(address, slot, hashed_storage)
     }
-    fn storage_multiproof(&self, address: Address, slots: &[B256], hashed_storage: reth_trie::HashedStorage) -> reth_errors::ProviderResult<reth_trie::StorageMultiProof> {
+    fn storage_multiproof(
+        &self,
+        address: Address,
+        slots: &[B256],
+        hashed_storage: reth_trie::HashedStorage,
+    ) -> reth_errors::ProviderResult<reth_trie::StorageMultiProof> {
         self.0.storage_multiproof(address, slots, hashed_storage)
     }
 }
 
 impl reth_provider::StateProofProvider for SyncStateProvider {
-    fn proof(&self, input: reth_trie::TrieInput, address: Address, slots: &[B256]) -> reth_errors::ProviderResult<reth_trie::AccountProof> {
+    fn proof(
+        &self,
+        input: reth_trie::TrieInput,
+        address: Address,
+        slots: &[B256],
+    ) -> reth_errors::ProviderResult<reth_trie::AccountProof> {
         self.0.proof(input, address, slots)
     }
-    fn multiproof(&self, input: reth_trie::TrieInput, targets: reth_trie::MultiProofTargets) -> reth_errors::ProviderResult<reth_trie::MultiProof> {
+    fn multiproof(
+        &self,
+        input: reth_trie::TrieInput,
+        targets: reth_trie::MultiProofTargets,
+    ) -> reth_errors::ProviderResult<reth_trie::MultiProof> {
         self.0.multiproof(input, targets)
     }
-    fn witness(&self, input: reth_trie::TrieInput, target: reth_trie::HashedPostState) -> reth_errors::ProviderResult<Vec<alloy_primitives::Bytes>> {
+    fn witness(
+        &self,
+        input: reth_trie::TrieInput,
+        target: reth_trie::HashedPostState,
+    ) -> reth_errors::ProviderResult<Vec<alloy_primitives::Bytes>> {
         self.0.witness(input, target)
     }
 }
@@ -144,13 +190,19 @@ impl reth_provider::HashedPostStateProvider for SyncStateProvider {
 }
 
 impl StateProvider for SyncStateProvider {
-    fn storage(&self, account: Address, storage_key: alloy_primitives::StorageKey) -> reth_errors::ProviderResult<Option<alloy_primitives::StorageValue>> {
+    fn storage(
+        &self,
+        account: Address,
+        storage_key: alloy_primitives::StorageKey,
+    ) -> reth_errors::ProviderResult<Option<alloy_primitives::StorageValue>> {
         self.0.storage(account, storage_key)
     }
 }
 
 /// Helper to convert `EvmDatabaseError<ProviderError>` to `ProviderError`.
-fn map_evm_db_error(e: revm::database_interface::bal::EvmDatabaseError<ProviderError>) -> ProviderError {
+fn map_evm_db_error(
+    e: revm::database_interface::bal::EvmDatabaseError<ProviderError>,
+) -> ProviderError {
     match e {
         revm::database_interface::bal::EvmDatabaseError::Database(e) => e,
         revm::database_interface::bal::EvmDatabaseError::Bal(e) => ProviderError::other(e),

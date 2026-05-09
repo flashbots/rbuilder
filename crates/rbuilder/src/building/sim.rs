@@ -18,7 +18,6 @@ use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
-use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -339,8 +338,9 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let mut state_for_sim =
-        Arc::new(SyncStateProvider::new(provider.history_by_block_hash(ctx.attributes.parent)?));
+    let mut state_for_sim = Arc::new(SyncStateProvider::new(
+        provider.history_by_block_hash(ctx.attributes.parent)?,
+    ));
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {
         // mix new orders into the sim_tree

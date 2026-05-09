@@ -1,10 +1,10 @@
+use crate::building::SyncStateProvider;
 use ahash::HashMap;
 use alloy_primitives::{Address, U256};
 use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use crate::building::SyncStateProvider;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
@@ -450,8 +450,8 @@ mod tests {
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
     use reth::primitives::TransactionSigned;
-    use reth_primitives_traits::Recovered;
     use reth_ethereum_primitives::Transaction;
+    use reth_primitives_traits::Recovered;
     use uuid::Uuid;
 
     use super::*;

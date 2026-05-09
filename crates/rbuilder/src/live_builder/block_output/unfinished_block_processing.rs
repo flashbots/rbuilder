@@ -626,8 +626,7 @@ impl UnfinishedBuiltBlocksInput {
             block_descriptor.creation_time = OffsetDateTime::now_utc();
             info!(
                 block_id = block_id.0,
-                relay_set_count,
-                "Prefinalized block, notifying bidding service"
+                relay_set_count, "Prefinalized block, notifying bidding service"
             );
             slot_bidder.notify_new_built_block(block_descriptor);
         }
@@ -716,7 +715,12 @@ impl UnfinishedBuiltBlocksInput {
 
             // Notify block observer (EPBS bid provider) of the new block
             if let Some(observer) = &block_observer {
-                info!(slot, ?parent_hash, ?parent_block_root, "Finalize thread notifying block observer");
+                info!(
+                    slot,
+                    ?parent_hash,
+                    ?parent_block_root,
+                    "Finalize thread notifying block observer"
+                );
                 observer.on_block_built(slot, parent_hash, parent_block_root, &result.block);
             } else {
                 tracing::debug!(slot, "Finalize thread: no block observer configured");

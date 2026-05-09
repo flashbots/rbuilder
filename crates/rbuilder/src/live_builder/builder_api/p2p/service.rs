@@ -7,11 +7,8 @@
 //! 4. Triggers payload envelope revelation after bid inclusion
 
 use super::{
-    bid_tracker::BidTracker,
-    proposer_prefs::ProposerPreferencesCache,
-    reveal_handler::RevealHandler,
-    scheduler::BidScheduler,
-    types::EpbsP2PConfig,
+    bid_tracker::BidTracker, proposer_prefs::ProposerPreferencesCache,
+    reveal_handler::RevealHandler, scheduler::BidScheduler, types::EpbsP2PConfig,
 };
 use crate::{
     beacon_api_client::{
@@ -244,7 +241,7 @@ impl EpbsP2PService {
             }
         }
 
-        // cleanup all 
+        // cleanup all
         head_handle.abort();
         bid_handle.abort();
         prefs_handle.abort();
@@ -276,7 +273,7 @@ impl EpbsP2PService {
             Ok(Some(included_bid)) => {
                 // trigger the reveal whenever the included bid is ours. We may
                 // have submitted several bids per slot with different block hashes
-                // the payload cache is keyed by block hash, so the RevealHandler 
+                // the payload cache is keyed by block hash, so the RevealHandler
                 // will look up he included bids block hash directly.
                 if included_bid.message.builder_index == builder_index {
                     if let Some(ref tracked) = our_bid {

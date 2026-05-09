@@ -31,12 +31,12 @@ impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + reth_provider::BlockNumReader
-                + reth_provider::ChangeSetReader
-                + reth_provider::StorageChangeSetReader
-                + reth_provider::StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + Clone
@@ -75,7 +75,9 @@ where
     }
 
     fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
-        let hasher = crate::building::SyncStateProvider::new(self.history_by_block_hash(parent_num_hash.hash)?);
+        let hasher = crate::building::SyncStateProvider::new(
+            self.history_by_block_hash(parent_num_hash.hash)?,
+        );
         let parent_state_root = self
             .provider
             .header_by_hash_or_number(parent_num_hash.hash.into())?

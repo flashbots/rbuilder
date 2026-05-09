@@ -196,45 +196,46 @@ impl MevBoostSlotDataGenerator {
                     "Payload attributes received from CL client"
                 );
 
-                let (slot_data, relay_registrations, correct_event) =
-                    if let Some((sd, rr)) = relays.slot_data(slot) {
-                        let mut ev = event;
-                        ev.data.payload_attributes.suggested_fee_recipient = sd.fee_recipient;
-                        info!(payload_id, address = ?sd.fee_recipient, "Payload attributes correct fee recipient set from relay");
-                        (sd, rr, ev)
-                    } else if self.relays.is_empty() {
-                        // EPBS mode: no relays configured, use CL-provided payload attributes as is.
-                        // The fee_recipient comes from the CL's suggested_fee_recipient (payload attributes),
-                        // and gas_limit from the default block gas limit.
-                        let fee_recipient = event.data.payload_attributes.suggested_fee_recipient;
-                        info!(
-                            payload_id,
-                            ?fee_recipient,
-                            "No relays configured, using CL payload attributes directly (EPBS mode)"
-                        );
-                        // TODO: per consensus-specs gloas/p2p-interface.md
-                        // `bid.gas_limit` MUST equal `ProposerPreferences.gas_limit`
-                        // for the slot. Until we receive prefs reliably via SSE,
-                        // hardcode the gas_limit kurtosis Prysm validators sign
-                        // (60_000_000 = DefaultBuilderGasLimit per Prysm config).
-                        // Bids with any other gas_limit fail the gossip [REJECT] rule.
-                        // This must be set here so reth builds the block with the
-                        // matching gas_limit; we can't override it post build.
-                        let sd = SlotData {
-                            fee_recipient,
-                            gas_limit: 60_000_000,
-                            pubkey: alloy_rpc_types_beacon::BlsPublicKey::ZERO,
-                        };
-                        let rr = Arc::new(HashMap::default());
-                        (sd, rr, event)
-                    } else {
-                        info!(
-                            payload_id,
-                            reason = "no MEV-Boost relay data",
-                            "Payload attributes discarded"
-                        );
-                        continue;
+                let (slot_data, relay_registrations, correct_event) = if let Some((sd, rr)) =
+                    relays.slot_data(slot)
+                {
+                    let mut ev = event;
+                    ev.data.payload_attributes.suggested_fee_recipient = sd.fee_recipient;
+                    info!(payload_id, address = ?sd.fee_recipient, "Payload attributes correct fee recipient set from relay");
+                    (sd, rr, ev)
+                } else if self.relays.is_empty() {
+                    // EPBS mode: no relays configured, use CL-provided payload attributes as is.
+                    // The fee_recipient comes from the CL's suggested_fee_recipient (payload attributes),
+                    // and gas_limit from the default block gas limit.
+                    let fee_recipient = event.data.payload_attributes.suggested_fee_recipient;
+                    info!(
+                        payload_id,
+                        ?fee_recipient,
+                        "No relays configured, using CL payload attributes directly (EPBS mode)"
+                    );
+                    // TODO: per consensus-specs gloas/p2p-interface.md
+                    // `bid.gas_limit` MUST equal `ProposerPreferences.gas_limit`
+                    // for the slot. Until we receive prefs reliably via SSE,
+                    // hardcode the gas_limit kurtosis Prysm validators sign
+                    // (60_000_000 = DefaultBuilderGasLimit per Prysm config).
+                    // Bids with any other gas_limit fail the gossip [REJECT] rule.
+                    // This must be set here so reth builds the block with the
+                    // matching gas_limit; we can't override it post build.
+                    let sd = SlotData {
+                        fee_recipient,
+                        gas_limit: 60_000_000,
+                        pubkey: alloy_rpc_types_beacon::BlsPublicKey::ZERO,
                     };
+                    let rr = Arc::new(HashMap::default());
+                    (sd, rr, event)
+                } else {
+                    info!(
+                        payload_id,
+                        reason = "no MEV-Boost relay data",
+                        "Payload attributes discarded"
+                    );
+                    continue;
+                };
 
                 let mev_boost_slot_data = MevBoostSlotData {
                     payload_attributes_event: correct_event,
@@ -320,7 +321,6 @@ fn check_slot_data_for_blocklist(
     Ok(true)
 }
 
-
 async fn gloas_override_parent_block_hash(
     cls: &[Client],
     event: &mut PayloadAttributesEvent,
@@ -348,10 +348,18 @@ async fn gloas_override_parent_block_hash(
                 return;
             }
             Ok(None) => {
-                debug!(payload_id, ?parent_block_root, "Parent beacon block not found via CL, leaving parent_block_hash as-is");
+                debug!(
+                    payload_id,
+                    ?parent_block_root,
+                    "Parent beacon block not found via CL, leaving parent_block_hash as-is"
+                );
             }
             Err(err) => {
-                debug!(payload_id, ?err, "Failed to fetch parent beacon block; trying next CL");
+                debug!(
+                    payload_id,
+                    ?err,
+                    "Failed to fetch parent beacon block; trying next CL"
+                );
             }
         }
     }

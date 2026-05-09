@@ -1,7 +1,7 @@
+use crate::building::SyncStateProvider;
 use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
-use crate::building::SyncStateProvider;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     thread,
@@ -65,9 +65,10 @@ where
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
 
-            let block_state: Arc<SyncStateProvider> = Arc::new(SyncStateProvider::new(self
-                .provider
-                .history_by_block_hash(self.ctx.attributes.parent)?));
+            let block_state: Arc<SyncStateProvider> = Arc::new(SyncStateProvider::new(
+                self.provider
+                    .history_by_block_hash(self.ctx.attributes.parent)?,
+            ));
             thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {

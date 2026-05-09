@@ -32,7 +32,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::I256;
 use derivative::Derivative;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
     marker::PhantomData,

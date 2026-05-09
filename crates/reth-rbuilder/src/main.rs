@@ -88,7 +88,13 @@ fn spawn_rbuilder<P>(
     config_path: PathBuf,
 ) where
     P: DatabaseProviderFactory<
-            Provider: BlockReader + StageCheckpointReader + PruneCheckpointReader + reth_provider::ChangeSetReader + reth_provider::StorageChangeSetReader + reth_provider::StorageSettingsCache + reth_provider::BlockNumReader,
+            Provider: BlockReader
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache
+                          + reth_provider::BlockNumReader,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + reth_provider::ChainSpecProvider

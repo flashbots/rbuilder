@@ -1,7 +1,7 @@
 use alloy_consensus::SignableTransaction;
-use reth_primitives_traits::Recovered;
 use alloy_primitives::{keccak256, Address, Signature, B256, U256};
 use reth_ethereum_primitives::{Transaction, TransactionSigned};
+use reth_primitives_traits::Recovered;
 use secp256k1::{Message, PublicKey, SecretKey, SECP256K1};
 
 fn public_key_to_address(pubkey: PublicKey) -> Address {

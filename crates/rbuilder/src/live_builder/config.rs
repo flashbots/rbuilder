@@ -71,8 +71,8 @@ use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_provider::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
+use reth_provider::StaticFileSegment;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -335,7 +335,10 @@ impl L1Config {
     }
 
     pub fn epbs_server_addr(&self) -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new(self.epbs_server_ip, self.epbs_server_port))
+        SocketAddr::V4(SocketAddrV4::new(
+            self.epbs_server_ip,
+            self.epbs_server_port,
+        ))
     }
 
     /// Returns the EPBS builder secret key, falling back to relay_secret_key if not set.
@@ -474,26 +477,27 @@ impl L1Config {
                 attempt += 1;
 
                 for client in &clients {
-                    let builder_index = match client.get_builder_index_by_pubkey(&pubkey_bytes).await {
-                        Ok(index) => {
-                            info!(
-                                builder_index = index,
-                                "Found builder in beacon state builders registry"
-                            );
-                            index
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                attempt,
-                                beacon_endpoint = %client.endpoint(),
-                                pubkey = hex::encode(&pubkey_bytes),
-                                error = ?e,
-                                "Failed to fetch builder index from beacon state"
-                            );
-                            last_error = Some(e);
-                            continue;
-                        }
-                    };
+                    let builder_index =
+                        match client.get_builder_index_by_pubkey(&pubkey_bytes).await {
+                            Ok(index) => {
+                                info!(
+                                    builder_index = index,
+                                    "Found builder in beacon state builders registry"
+                                );
+                                index
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    attempt,
+                                    beacon_endpoint = %client.endpoint(),
+                                    pubkey = hex::encode(&pubkey_bytes),
+                                    error = ?e,
+                                    "Failed to fetch builder index from beacon state"
+                                );
+                                last_error = Some(e);
+                                continue;
+                            }
+                        };
 
                     // Get signing domain (from config or beacon chain)
                     let domain = if let Some(domain) = signing_domain {
@@ -583,7 +587,7 @@ impl L1Config {
 
         // Create P2P service if enabled
         let p2p_service = if self.epbs_p2p_enabled {
-            use super::builder_api::p2p::{EpbsP2PConfig};
+            use super::builder_api::p2p::EpbsP2PConfig;
 
             info!("EPBS P2P builder service is enabled");
 
@@ -606,7 +610,10 @@ impl L1Config {
                     }
                 }
                 if let Some(t) = result {
-                    info!(genesis_time = t, "Fetched genesis_time for EPBS P2P scheduler");
+                    info!(
+                        genesis_time = t,
+                        "Fetched genesis_time for EPBS P2P scheduler"
+                    );
                     t
                 } else {
                     tracing::warn!(
@@ -1177,8 +1184,14 @@ pub fn create_provider_factory(
 
     let rocksdb_provider = reth_provider::providers::RocksDBProvider::new(&reth_db_path)?;
     let runtime = reth_tasks::Runtime::test();
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config, rocksdb_provider, runtime)?;
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        root_hash_config,
+        rocksdb_provider,
+        runtime,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -1498,6 +1511,7 @@ where
     .await??)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_sink_factory_and_relays<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,

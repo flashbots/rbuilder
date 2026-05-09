@@ -9,6 +9,7 @@ use alloy_primitives::B256;
 use alloy_rpc_types_beacon::BlsSignature;
 use ethereum_consensus::crypto::SecretKey;
 use lighthouse_bls::{PublicKeyBytes, SignatureBytes};
+use lighthouse_ssz_types::VariableList;
 use lighthouse_types::{
     ConsolidationRequest, DepositRequest, ExecutionBlockHash,
     ExecutionPayloadBid as LhExecutionPayloadBid,
@@ -20,7 +21,6 @@ use rbuilder_primitives::epbs::{
     ExecutionPayloadBid, ExecutionPayloadEnvelope, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelope,
 };
-use lighthouse_ssz_types::VariableList;
 
 /// DOMAIN_BEACON_BUILDER from consensus-specs/specs/gloas/beacon-chain.md
 /// Value: DomainType('0x0B000000')
@@ -191,8 +191,8 @@ fn to_lh_execution_payload(
             amount: w.amount,
         })
         .collect();
-    let withdrawals = VariableList::new(withdrawals)
-        .map_err(|e| eyre::eyre!("Too many withdrawals: {:?}", e))?;
+    let withdrawals =
+        VariableList::new(withdrawals).map_err(|e| eyre::eyre!("Too many withdrawals: {:?}", e))?;
 
     // convert extra_data
     let extra_data = VariableList::new(inner1.extra_data.to_vec())

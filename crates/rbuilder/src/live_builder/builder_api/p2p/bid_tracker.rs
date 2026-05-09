@@ -97,12 +97,7 @@ impl BidTracker {
     }
 
     /// Check if we are currently the highest bidder for a slot/parent.
-    pub fn are_we_winning(
-        &self,
-        slot: u64,
-        parent_hash: &BlockHash,
-        parent_root: &B256,
-    ) -> bool {
+    pub fn are_we_winning(&self, slot: u64, parent_hash: &BlockHash, parent_root: &B256) -> bool {
         let key = BidKey {
             slot,
             parent_block_hash: *parent_hash,

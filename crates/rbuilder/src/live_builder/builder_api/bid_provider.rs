@@ -87,7 +87,6 @@ impl Default for LiveEpbsBidProviderConfig {
 /// 2. Tracks the best block for each slot/parent combination
 /// 3. Generates SignedExecutionPayloadBid on request
 /// 4. Caches full payloads for later revelation
-
 pub struct LiveEpbsBidProvider {
     /// Configuration.
     config: LiveEpbsBidProviderConfig,
@@ -390,7 +389,7 @@ impl LiveEpbsBidProvider {
 
         // Hold the sidecars by Arc reference. No fresh blob byte copy at
         // cache-insert time — the original buffers in the Block stay shared.
-        let sidecars: Vec<_> = block.txs_blobs_sidecars.iter().cloned().collect();
+        let sidecars: Vec<_> = block.txs_blobs_sidecars.to_vec();
 
         let execution_requests = Self::convert_execution_requests(&block.execution_requests);
 
@@ -496,7 +495,7 @@ impl LiveEpbsBidProvider {
 
     /// drop payload cache and best-blocks entries whose slot is strictly older
     /// than `oldest_slot_to_keep`. Called from the P2P main loop on slot
-    /// transitions to bound memory growth payload_cache is keyed by block_hash 
+    /// transitions to bound memory growth payload_cache is keyed by block_hash
     /// but each entry knows its slot via `entry.bid.message.slot` so we filter on that.
     pub fn cleanup_older_than(&self, oldest_slot_to_keep: u64) {
         let mut payload = self.payload_cache.write();

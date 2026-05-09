@@ -2,9 +2,9 @@ use super::{
     results_aggregator::BestResults, ConflictGroup, GroupId, ParallelBuilderConfig,
     ResolutionResult,
 };
+use crate::building::SyncStateProvider;
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use crate::building::SyncStateProvider;
 use std::{
     sync::Arc,
     time::{Duration, Instant},

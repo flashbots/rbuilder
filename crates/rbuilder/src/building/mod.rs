@@ -43,14 +43,14 @@ use rbuilder_primitives::{
     TransactionSignedEcRecoveredWithBlobs,
 };
 use reth::payload::PayloadId;
-use reth_ethereum_primitives::Block;
-use reth_primitives_traits::SealedBlock;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
+use reth_ethereum_primitives::Block;
+use reth_ethereum_primitives::BlockBody;
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
 use reth_node_api::payload_id;
-use reth_ethereum_primitives::BlockBody;
+use reth_primitives_traits::SealedBlock;
 use reth_primitives_traits::{proofs, Block as _};
 use revm::{
     context_interface::result::InvalidTransaction, database::states::bundle_state::BundleRetention,

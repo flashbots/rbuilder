@@ -82,12 +82,12 @@ pub fn calculate_account_proofs<P>(
 where
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + reth_provider::BlockNumReader
-                + reth_provider::ChangeSetReader
-                + reth_provider::StorageChangeSetReader
-                + reth_provider::StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone
@@ -128,12 +128,12 @@ where
     HasherType: HashedPostStateProvider + Send + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + reth_provider::BlockNumReader
-                + reth_provider::ChangeSetReader
-                + reth_provider::StorageChangeSetReader
-                + reth_provider::StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone
@@ -166,12 +166,12 @@ where
     HasherType: HashedPostStateProvider + Send + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
-                + StageCheckpointReader
-                + PruneCheckpointReader
-                + reth_provider::BlockNumReader
-                + reth_provider::ChangeSetReader
-                + reth_provider::StorageChangeSetReader
-                + reth_provider::StorageSettingsCache,
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone
