@@ -14,7 +14,8 @@ use crate::{
         },
         order_is_worth_executing, BlockBuildingContext, ExecutionError,
         NullPartialBlockExecutionTracer, OrderPriority, PartialBlockExecutionTracer,
-        PrioritizedOrderStore, SimulatedOrderSink, Sorting, ThreadBlockBuildingContext,
+        PrioritizedOrderStore, SimulatedOrderSink, Sorting, SyncStateProvider,
+        ThreadBlockBuildingContext,
     },
     live_builder::{
         block_output::bidding_service_interface::CompetitionBidContext,
@@ -31,7 +32,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::I256;
 use derivative::Derivative;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
     marker::PhantomData,
@@ -94,11 +94,11 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
 {
     let payload_id = input.ctx.payload_id;
 
-    let block_state: Arc<dyn StateProvider> = match input
+    let block_state: Arc<SyncStateProvider> = match input
         .provider
         .history_by_block_hash(input.ctx.attributes.parent)
     {
-        Ok(state) => Arc::from(state),
+        Ok(state) => Arc::new(SyncStateProvider::new(state)),
         Err(err) => {
             error!(
                 ?err,
@@ -186,7 +186,7 @@ where
         block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut local_ctx = ThreadBlockBuildingContext::default();
     let mut builder = OrderingBuilderContext::new(
-        Arc::from(state_provider),
+        Arc::new(SyncStateProvider::new(state_provider)),
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -214,7 +214,7 @@ where
 #[derivative(Debug)]
 pub struct OrderingBuilderContext {
     #[derivative(Debug = "ignore")]
-    state: Arc<dyn StateProvider>,
+    state: Arc<SyncStateProvider>,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -232,7 +232,7 @@ pub struct OrderingBuilderContext {
 
 impl OrderingBuilderContext {
     pub fn new(
-        state: Arc<dyn StateProvider>,
+        state: Arc<SyncStateProvider>,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,

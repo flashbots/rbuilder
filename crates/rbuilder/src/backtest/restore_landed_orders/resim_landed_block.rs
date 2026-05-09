@@ -14,7 +14,8 @@ use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
 use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_chainspec::ChainSpec;
-use reth_primitives::{Receipt, Recovered, TransactionSigned};
+use reth_ethereum_primitives::{Receipt, TransactionSigned};
+use reth_primitives_traits::Recovered;
 use std::sync::Arc;
 
 #[derive(Debug)]

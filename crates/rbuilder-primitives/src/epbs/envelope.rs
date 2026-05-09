@@ -4,11 +4,13 @@
 //! after their bid is included in a beacon block.
 //! See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/builder.md
 
+use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Bytes, B256};
 use alloy_rpc_types_beacon::BlsSignature;
 use alloy_rpc_types_engine::ExecutionPayloadV3;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
+use std::sync::Arc;
 
 /// ExecutionPayloadEnvelope contains the full execution payload and associated data.
 ///
@@ -34,6 +36,9 @@ pub struct ExecutionPayloadEnvelope {
     /// Slot of the beacon block.
     #[serde_as(as = "DisplayFromStr")]
     pub slot: u64,
+    /// Blob KZG commitments for the payload.
+    #[serde(default)]
+    pub blob_kzg_commitments: Vec<Bytes>,
     /// State root after applying the execution payload.
     pub state_root: B256,
 }
@@ -83,6 +88,11 @@ pub struct CachedPayloadData {
     pub execution_requests: ExecutionRequests,
     /// Blob KZG commitments.
     pub blob_kzg_commitments: Vec<Bytes>,
+    /// Reference to the original blob sidecars from the built block. Held by
+    /// `Arc` so cache inserts are pointer bumps, not 128KB-per-blob copies.
+    /// Use `blobs()` and `cell_proofs()` to materialize the wire-format
+    /// `Vec<Bytes>` for the envelope-publish API.
+    pub sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// Timestamp when this cache entry was created.
     pub created_at: std::time::Instant,
 }
@@ -94,12 +104,14 @@ impl CachedPayloadData {
         payload: ExecutionPayloadV3,
         execution_requests: ExecutionRequests,
         blob_kzg_commitments: Vec<Bytes>,
+        sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     ) -> Self {
         Self {
             bid,
             payload,
             execution_requests,
             blob_kzg_commitments,
+            sidecars,
             created_at: std::time::Instant::now(),
         }
     }
@@ -116,7 +128,34 @@ impl CachedPayloadData {
             builder_index: self.bid.message.builder_index,
             beacon_block_root,
             slot: self.bid.message.slot,
+            blob_kzg_commitments: self.blob_kzg_commitments.clone(),
             state_root,
         }
+    }
+
+    /// Materialize raw blob bytes from the sidecars in publish api order
+    pub fn blobs(&self) -> Vec<Bytes> {
+        let mut out = Vec::new();
+        for sidecar in &self.sidecars {
+            if let BlobTransactionSidecarVariant::Eip7594(s) = sidecar.as_ref() {
+                for blob in &s.blobs {
+                    out.push(Bytes::copy_from_slice(blob.as_ref()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Materialize the flat list of EIP-7594 cell proofs in publish api order
+    pub fn cell_proofs(&self) -> Vec<Bytes> {
+        let mut out = Vec::new();
+        for sidecar in &self.sidecars {
+            if let BlobTransactionSidecarVariant::Eip7594(s) = sidecar.as_ref() {
+                for proof in &s.cell_proofs {
+                    out.push(Bytes::copy_from_slice(proof.as_slice()));
+                }
+            }
+        }
+        out
     }
 }

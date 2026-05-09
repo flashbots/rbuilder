@@ -6,8 +6,9 @@ use crate::building::{
 };
 use alloy_primitives::Address;
 use rbuilder_primitives::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
+use reth_ethereum_primitives::TransactionSigned;
 use reth_evm::Evm;
-use reth_primitives::{Recovered, TransactionSigned};
+use reth_primitives_traits::Recovered;
 
 #[derive(Debug)]
 pub struct TestSetup {

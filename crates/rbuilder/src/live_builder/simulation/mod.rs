@@ -150,7 +150,7 @@ where
                             return;
                         }
                     };
-                    NonceCache::new(state.into())
+                    NonceCache::new(Arc::new(crate::building::SyncStateProvider::new(state)))
                 };
 
                 let sim_tree = SimTree::new(nonces);

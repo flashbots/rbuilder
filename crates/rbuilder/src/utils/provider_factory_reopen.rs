@@ -18,10 +18,10 @@ use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
-    providers::{ProviderNodeTypes, StaticFileProvider},
+    providers::{ProviderNodeTypes, RocksDBProvider, StaticFileProvider},
     BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
-    TrieReader,
+    PruneCheckpointReader, RocksDBProviderFactory, StageCheckpointReader, StateProviderBox,
+    StaticFileProviderFactory,
 };
 use revm::database::BundleState;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc};
@@ -42,6 +42,8 @@ pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     testing_mode: bool,
     /// None ->No root hash (MockRootHasher)
     root_hash_config: Option<RootHashContext>,
+    rocksdb_provider: Option<RocksDBProvider>,
+    runtime: Option<reth_tasks::Runtime>,
 }
 
 /// root_hash_config None -> MockRootHasher used
@@ -51,12 +53,17 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         chain_spec: Arc<N::ChainSpec>,
         static_files_path: PathBuf,
         root_hash_config: Option<RootHashContext>,
+        rocksdb_provider: RocksDBProvider,
+        runtime: reth_tasks::Runtime,
     ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
-            StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
-        );
+            StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
+            rocksdb_provider.clone(),
+            runtime.clone(),
+        )
+        .map_err(|e| reth_errors::RethError::msg(e.to_string()))?;
 
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
@@ -64,6 +71,8 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             static_files_path,
             root_hash_config,
             testing_mode: false,
+            rocksdb_provider: Some(rocksdb_provider),
+            runtime: Some(runtime),
         })
     }
 
@@ -73,12 +82,15 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
         let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
+        let rocksdb_provider = provider_factory.rocksdb_provider();
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
             static_files_path,
             root_hash_config,
             testing_mode: true,
+            rocksdb_provider: Some(rocksdb_provider),
+            runtime: None,
         })
     }
 
@@ -108,12 +120,20 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     debug!(?err, "Provider factory is inconsistent, reopening");
                     inc_provider_reopen_counter();
 
-                    *provider_factory = ProviderFactory::new(
-                        provider_factory.db_ref().clone(),
-                        self.chain_spec.clone(),
-                        StaticFileProvider::read_only(self.static_files_path.as_path(), true)
-                            .unwrap(),
-                    );
+                    if let (Some(rocksdb), Some(runtime)) = (&self.rocksdb_provider, &self.runtime)
+                    {
+                        *provider_factory = ProviderFactory::new(
+                            provider_factory.db_ref().clone(),
+                            self.chain_spec.clone(),
+                            StaticFileProvider::read_only(self.static_files_path.as_path())
+                                .unwrap(),
+                            rocksdb.clone(),
+                            runtime.clone(),
+                        )
+                        .unwrap();
+                    } else {
+                        let _ = provider_factory.sync_providers_if_needed();
+                    }
                 }
             }
 
@@ -292,9 +312,15 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
 
 impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Send + Sync,
     T: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + Send
         + Sync
         + Clone

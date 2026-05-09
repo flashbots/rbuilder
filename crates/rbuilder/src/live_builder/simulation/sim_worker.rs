@@ -49,14 +49,15 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
-        let state_provider =
-            match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => Arc::new(state_provider),
-                Err(err) => {
-                    error!(?err, "Error while getting state for block");
-                    continue 'main;
-                }
-            };
+        let state_provider = match provider
+            .history_by_block_hash(current_sim_context.block_ctx.attributes.parent)
+        {
+            Ok(state_provider) => Arc::new(crate::building::SyncStateProvider::new(state_provider)),
+            Err(err) => {
+                error!(?err, "Error while getting state for block");
+                continue 'main;
+            }
+        };
         while let Ok(task) = current_sim_context.requests.recv() {
             let sim_thread_wait_time = last_sim_finished.elapsed();
             let sim_start = Instant::now();

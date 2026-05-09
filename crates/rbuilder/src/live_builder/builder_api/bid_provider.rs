@@ -3,7 +3,7 @@
 //! This module provides the `LiveEpbsBidProvider` which implements `EpbsBidProvider`
 //! by connecting to the existing block building infrastructure.
 
-use alloy_primitives::{BlockHash, U256};
+use alloy_primitives::{BlockHash, B256, U256};
 use alloy_rpc_types_engine::ExecutionPayloadV3;
 use parking_lot::RwLock;
 use rbuilder_primitives::epbs::{
@@ -11,6 +11,7 @@ use rbuilder_primitives::epbs::{
     SignedExecutionPayloadBid,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
+use tokio::sync::mpsc;
 use tracing::{debug, info, trace};
 
 use crate::{
@@ -47,6 +48,13 @@ pub struct CachedBlockData {
     pub cached_at: Instant,
     /// Slot this block is for.
     pub slot: u64,
+    /// Beacon parent_block_root from payload_attributes. MUST be paired with
+    /// `parent_block_hash` (below) — Prysm verifies that the beacon block at
+    /// `parent_block_root` commits to `parent_block_hash` as its EL payload.
+    pub parent_block_root: B256,
+    /// EL parent block hash from payload_attributes (NOT from the built block's
+    /// own parent_hash — those can diverge from the CL's view).
+    pub parent_block_hash: BlockHash,
 }
 
 /// Config for the LiveEpbsBidProvider.
@@ -56,6 +64,9 @@ pub struct LiveEpbsBidProviderConfig {
     pub max_cached_blocks: usize,
     /// max age of a cached block before it's considered stale.
     pub max_block_age_ms: u64,
+    /// only meant to be used for devnet testing
+    /// TODO dont use for prod
+    pub bid_value_subsidy_gwei: u64,
 }
 
 impl Default for LiveEpbsBidProviderConfig {
@@ -63,6 +74,8 @@ impl Default for LiveEpbsBidProviderConfig {
         Self {
             max_cached_blocks: 100,
             max_block_age_ms: 12_000, // one slot, but maybe we can also update it?
+            // Default 0: production-safe. Set explicitly via L1Config
+            bid_value_subsidy_gwei: 0,
         }
     }
 }
@@ -74,7 +87,6 @@ impl Default for LiveEpbsBidProviderConfig {
 /// 2. Tracks the best block for each slot/parent combination
 /// 3. Generates SignedExecutionPayloadBid on request
 /// 4. Caches full payloads for later revelation
-
 pub struct LiveEpbsBidProvider {
     /// Configuration.
     config: LiveEpbsBidProviderConfig,
@@ -83,8 +95,14 @@ pub struct LiveEpbsBidProvider {
     signer: Arc<RwLock<Option<EpbsBidSigner>>>,
     /// Best blocks by slot/parent key.
     best_blocks: RwLock<HashMap<SlotParentKey, CachedBlockData>>,
-    /// Cache of full payloads for revelation, keyed by block_hash.
+    /// Cache of full payloads for revelation, keyed by **block_hash**.
+    ///  growth is capped and  is achieved via slot-aware cleanup
+    /// `cleanup_older_than(oldest_slot)` drops entries whose
+    /// `bid.message.slot < oldest_slot`. The P2P main loop calls this on
+    /// every detected slot transition with `current_slot - 64`, mirroring
+    /// buildoor's pattern.
     payload_cache: Arc<RwLock<HashMap<BlockHash, CachedPayloadData>>>,
+    fresh_block_tx: RwLock<Option<mpsc::UnboundedSender<u64>>>,
 }
 
 impl LiveEpbsBidProvider {
@@ -95,6 +113,7 @@ impl LiveEpbsBidProvider {
             signer: Arc::new(RwLock::new(Some(signer))),
             best_blocks: RwLock::new(HashMap::new()),
             payload_cache: Arc::new(RwLock::new(HashMap::new())),
+            fresh_block_tx: RwLock::new(None),
         }
     }
 
@@ -108,7 +127,17 @@ impl LiveEpbsBidProvider {
             signer: Arc::new(RwLock::new(None)),
             best_blocks: RwLock::new(HashMap::new()),
             payload_cache: Arc::new(RwLock::new(HashMap::new())),
+            fresh_block_tx: RwLock::new(None),
         }
+    }
+
+    /// Subscribe to "fresh block cached" notifications. Returns a receiver that
+    /// emits a slot number whenever `on_new_block` caches a block (including
+    /// when an existing slot's best block is updated).
+    pub fn subscribe_fresh_blocks(&self) -> mpsc::UnboundedReceiver<u64> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.fresh_block_tx.write() = Some(tx);
+        rx
     }
 
     /// Set the signer for this provider.
@@ -144,13 +173,26 @@ impl LiveEpbsBidProvider {
     /// This should be called by the block building pipeline whenever a new
     /// block is produced. The provider will track the best block for each
     /// slot/parent combination.
-    pub fn on_new_block(&self, slot: u64, parent_hash: BlockHash, block: Block) {
+    pub fn on_new_block(
+        &self,
+        slot: u64,
+        parent_hash: BlockHash,
+        parent_block_root: B256,
+        block: Block,
+    ) {
         let key = SlotParentKey { slot, parent_hash };
 
         let cached = CachedBlockData {
             block: block.clone(),
             cached_at: Instant::now(),
             slot,
+            parent_block_root,
+            // Use the parent_block_hash from payload_attributes (passed via
+            // BlockObserver). It must match the EL block referenced by
+            // `parent_block_root` from the CL's perspective. Using the built
+            // block's own parent_hash can diverge from the CL view and breaks
+            // Prysm's `VerifyParentBlockHash` check.
+            parent_block_hash: parent_hash,
         };
 
         let mut best_blocks = self.best_blocks.write();
@@ -180,33 +222,104 @@ impl LiveEpbsBidProvider {
                 now.duration_since(v.cached_at).as_millis() < self.config.max_block_age_ms as u128
             });
         }
+
+        // Release the best_blocks lock before notifying subscribers. Notifications
+        // only fire when we actually updated the cache.
+        drop(best_blocks);
+        if should_update {
+            if let Some(tx) = self.fresh_block_tx.read().as_ref() {
+                // Channel is unbounded; failure means receiver dropped, which
+                // is benign (the P2P service may not be running).
+                let _ = tx.send(slot);
+            }
+        }
     }
 
     /// Get the best block for a given slot/parent combination.
     pub fn get_best_block(&self, params: &GetBidParams) -> Option<CachedBlockData> {
-        let key = SlotParentKey::from_params(params);
         let best_blocks = self.best_blocks.read();
-        best_blocks.get(&key).cloned()
+        // If the caller specifies a concrete parent_hash, look up the exact key.
+        // If parent_hash is ZERO (P2P bidder doesn't track parent_hash before
+        // bidding), find the highest-value cached block for the requested slot.
+        if !params.parent_hash.is_zero() {
+            let key = SlotParentKey::from_params(params);
+            return best_blocks.get(&key).cloned();
+        }
+        best_blocks
+            .iter()
+            .filter(|(k, _)| k.slot == params.slot)
+            .max_by_key(|(_, v)| v.block.trace.bid_value)
+            .map(|(_, v)| v.clone())
     }
 
     /// Convert a Block to an ExecutionPayloadBid.
+    ///
+    /// Method form (not associated fn) so it can read `self.config` for the
+    /// devnet bid-value subsidy. See `LiveEpbsBidProviderConfig::bid_value_subsidy_gwei`
+    /// for the rationale and removal criteria.
     fn block_to_bid(
-        block: &Block,
+        &self,
+        cached: &CachedBlockData,
         params: &GetBidParams,
         builder_index: u64,
         blob_kzg_commitments: Vec<Bytes>,
     ) -> ExecutionPayloadBid {
+        let block = &cached.block;
         // bid_value is in wei, we need gwei
-        let value_gwei = (block.trace.bid_value / U256::from(1_000_000_000u64))
+        let true_value_gwei: u64 = (block.trace.bid_value / U256::from(1_000_000_000u64))
             .try_into()
             .unwrap_or(u64::MAX);
 
+        // Apply the devnet subsidy on top of the block's true value. Saturating
+        // add so a misconfigured huge subsidy doesn't wrap. When the subsidy is
+        // 0 (production default), this is a no-op.
+        let value_gwei = true_value_gwei.saturating_add(self.config.bid_value_subsidy_gwei);
+        if self.config.bid_value_subsidy_gwei > 0 {
+            debug!(
+                slot = params.slot,
+                true_value_gwei,
+                subsidy_gwei = self.config.bid_value_subsidy_gwei,
+                bid_value_gwei = value_gwei,
+                "Applied devnet bid-value subsidy"
+            );
+        }
+
+        // Use fee_recipient from caller (proposer preferences if cached, otherwise
+        // the hardcoded devnet fallback set in p2p::service). If still zero (e.g.
+        // builder server callers that don't set it), fall back to the block's own
+        // beneficiary — this won't pass the gossip [REJECT] rule but is a sane
+        // last resort.
+        let fee_recipient = if !params.fee_recipient.is_zero() {
+            params.fee_recipient
+        } else {
+            block.sealed_block.beneficiary
+        };
+
+        // If the caller didn't supply a concrete parent_hash (e.g. P2P bidder),
+        // use the cached parent_block_hash from payload_attributes (NOT the built
+        // block's own parent_hash). This must match the EL block that the beacon
+        // block at `parent_block_root` commits to — Prysm verifies this pairing.
+        let parent_block_hash = if params.parent_hash.is_zero() {
+            cached.parent_block_hash
+        } else {
+            params.parent_hash
+        };
+
+        // Use the cached parent_block_root from when the block was prefinalized
+        // (from payload_attributes_event for that slot). If caller supplied a
+        // non-zero parent_root, that takes priority.
+        let parent_block_root = if !params.parent_root.is_zero() {
+            params.parent_root
+        } else {
+            cached.parent_block_root
+        };
+
         ExecutionPayloadBid {
-            parent_block_hash: params.parent_hash,
-            parent_block_root: params.parent_root,
+            parent_block_hash,
+            parent_block_root,
             block_hash: block.sealed_block.hash(),
             prev_randao: block.sealed_block.mix_hash,
-            fee_recipient: params.fee_recipient,
+            fee_recipient,
             gas_limit: block.sealed_block.gas_limit,
             builder_index,
             slot: params.slot,
@@ -255,7 +368,17 @@ impl LiveEpbsBidProvider {
     }
 
     /// Cache the payload for later revelation.
+    ///
+    /// Keyed by block_hash so multiple bids per slot (different algos / different
+    /// orderings → different block_hashes) all stay reachable; the proposer may
+    /// pick any of them. Blob bytes are NOT copied here — `cached.sidecars`
+    /// holds `Arc` refs to the original sidecars from the built block (cheap
+    /// clone), and the wire-format `Vec<Bytes>` is built only at reveal time
+    /// via `cached.blobs()` / `cached.cell_proofs()`.
+    ///
+    /// Bounded growth comes from slot-aware cleanup, not from the cache key.
     fn cache_payload(&self, signed_bid: &SignedExecutionPayloadBid, block: &Block) {
+        let slot = signed_bid.message.slot;
         let block_hash = signed_bid.message.block_hash;
 
         // Convert block to ExecutionPayloadV3
@@ -264,6 +387,10 @@ impl LiveEpbsBidProvider {
         // Extract blob commitments
         let blob_kzg_commitments = self.extract_blob_commitments(block);
 
+        // Hold the sidecars by Arc reference. No fresh blob byte copy at
+        // cache-insert time — the original buffers in the Block stay shared.
+        let sidecars: Vec<_> = block.txs_blobs_sidecars.to_vec();
+
         let execution_requests = Self::convert_execution_requests(&block.execution_requests);
 
         let cached = CachedPayloadData::new(
@@ -271,11 +398,17 @@ impl LiveEpbsBidProvider {
             payload,
             execution_requests,
             blob_kzg_commitments,
+            sidecars,
+        );
+
+        debug!(
+            slot,
+            ?block_hash,
+            sidecar_count = cached.sidecars.len(),
+            "Cached payload for revelation"
         );
 
         self.payload_cache.write().insert(block_hash, cached);
-
-        debug!(?block_hash, "Cached payload for revelation");
     }
 
     /// Convert a Block to ExecutionPayloadV3.
@@ -355,23 +488,36 @@ impl LiveEpbsBidProvider {
         commitments
     }
 
-    /// Get a cached payload by block hash.
+    /// Get a cached payload by block_hash.
     pub fn get_cached_payload(&self, block_hash: &BlockHash) -> Option<CachedPayloadData> {
         self.payload_cache.read().get(block_hash).cloned()
     }
 
-    /// Cleanup stale cache entries.
-    pub fn cleanup(&self) {
-        let now = Instant::now();
-        let max_age_ms = self.config.max_block_age_ms as u128;
+    /// drop payload cache and best-blocks entries whose slot is strictly older
+    /// than `oldest_slot_to_keep`. Called from the P2P main loop on slot
+    /// transitions to bound memory growth payload_cache is keyed by block_hash
+    /// but each entry knows its slot via `entry.bid.message.slot` so we filter on that.
+    pub fn cleanup_older_than(&self, oldest_slot_to_keep: u64) {
+        let mut payload = self.payload_cache.write();
+        let before = payload.len();
+        payload.retain(|_, v| v.bid.message.slot >= oldest_slot_to_keep);
+        let after_payload = payload.len();
+        drop(payload);
 
-        self.best_blocks
-            .write()
-            .retain(|_, v| now.duration_since(v.cached_at).as_millis() < max_age_ms);
+        let mut best = self.best_blocks.write();
+        let best_before = best.len();
+        best.retain(|key, _| key.slot >= oldest_slot_to_keep);
+        let best_after = best.len();
+        drop(best);
 
-        self.payload_cache.write().retain(|_, v| {
-            v.created_at.elapsed().as_millis() < max_age_ms * 2 // Keep payloads longer
-        });
+        if before != after_payload || best_before != best_after {
+            debug!(
+                oldest_slot_to_keep,
+                payload_pruned = before - after_payload,
+                best_pruned = best_before - best_after,
+                "Pruned old cache entries"
+            );
+        }
     }
 }
 
@@ -389,8 +535,14 @@ impl std::fmt::Debug for LiveEpbsBidProvider {
 
 /// Implement BlockObserver so that the block building pipeline can notify us of new blocks.
 impl BlockObserver for LiveEpbsBidProvider {
-    fn on_block_built(&self, slot: u64, parent_hash: BlockHash, block: &Block) {
-        self.on_new_block(slot, parent_hash, block.clone());
+    fn on_block_built(
+        &self,
+        slot: u64,
+        parent_hash: BlockHash,
+        parent_block_root: B256,
+        block: &Block,
+    ) {
+        self.on_new_block(slot, parent_hash, parent_block_root, block.clone());
     }
 }
 
@@ -440,8 +592,8 @@ impl EpbsBidProvider for LiveEpbsBidProvider {
         let blob_kzg_commitments = self.extract_blob_commitments(&cached_block.block);
 
         // Create the bid
-        let bid = Self::block_to_bid(
-            &cached_block.block,
+        let bid = self.block_to_bid(
+            &cached_block,
             params,
             signer.builder_index(),
             blob_kzg_commitments,

@@ -71,8 +71,8 @@ use reth_chainspec::{Chain, ChainSpec, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
+use reth_provider::StaticFileSegment;
 use serde::Deserialize;
 use serde_with::{serde_as, OneOrMany};
 use std::{
@@ -256,26 +256,36 @@ pub struct L1Config {
     /// Enable P2P ePBS builder (bid gossip via beacon node).
     #[serde(default)]
     pub epbs_p2p_enabled: bool,
-    /// Milliseconds into slot to start bidding (P2P mode).
-    #[serde(default)]
-    pub epbs_p2p_bid_start_ms: u64,
-    /// Milliseconds into slot to stop bidding (P2P mode).
+    /// Milliseconds relative to slot start when bidding opens (P2P mode).
+    /// Negative values mean before slot start, which is the recommended setting
+    /// so bids land in proposer caches before the slot start `getBlock` query.
+    #[serde(default = "default_epbs_p2p_bid_start_ms")]
+    pub epbs_p2p_bid_start_ms: i64,
+    /// Milliseconds relative to slot start when bidding closes (P2P mode).
     #[serde(default = "default_epbs_p2p_bid_end_ms")]
-    pub epbs_p2p_bid_end_ms: u64,
+    pub epbs_p2p_bid_end_ms: i64,
     /// Interval between bid resubmissions in ms (0 = single bid, P2P mode).
     #[serde(default = "default_epbs_p2p_bid_interval_ms")]
     pub epbs_p2p_bid_interval_ms: u64,
     /// Value increment per resubmission in gwei (P2P mode).
     #[serde(default)]
     pub epbs_p2p_bid_value_increment_gwei: u64,
+    /// added for testing only for now, in prod probably dont need this
+    /// TODO: think how to remove it.
+    #[serde(default)]
+    pub epbs_p2p_bid_value_subsidy_gwei: u64,
 }
 
-fn default_epbs_p2p_bid_end_ms() -> u64 {
-    4000
+fn default_epbs_p2p_bid_start_ms() -> i64 {
+    -1000
+}
+
+fn default_epbs_p2p_bid_end_ms() -> i64 {
+    1000
 }
 
 fn default_epbs_p2p_bid_interval_ms() -> u64 {
-    500
+    250
 }
 
 impl Default for L1Config {
@@ -300,10 +310,11 @@ impl Default for L1Config {
             epbs_signing_domain: None,
             // EPBS P2P defaults - disabled by default
             epbs_p2p_enabled: false,
-            epbs_p2p_bid_start_ms: 0,
+            epbs_p2p_bid_start_ms: default_epbs_p2p_bid_start_ms(),
             epbs_p2p_bid_end_ms: default_epbs_p2p_bid_end_ms(),
             epbs_p2p_bid_interval_ms: default_epbs_p2p_bid_interval_ms(),
             epbs_p2p_bid_value_increment_gwei: 0,
+            epbs_p2p_bid_value_subsidy_gwei: 0,
         }
     }
 }
@@ -324,7 +335,10 @@ impl L1Config {
     }
 
     pub fn epbs_server_addr(&self) -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new(self.epbs_server_ip, self.epbs_server_port))
+        SocketAddr::V4(SocketAddrV4::new(
+            self.epbs_server_ip,
+            self.epbs_server_port,
+        ))
     }
 
     /// Returns the EPBS builder secret key, falling back to relay_secret_key if not set.
@@ -389,7 +403,7 @@ impl L1Config {
     /// - Optionally, the P2P service (if epbs_p2p_enabled)
     ///
     /// Returns None if EPBS is not enabled.
-    pub fn create_epbs_components(
+    pub async fn create_epbs_components(
         &self,
     ) -> eyre::Result<
         Option<(
@@ -431,57 +445,59 @@ impl L1Config {
         // Create provider without signer - will be initialized in background
         // after fetching builder_index and signing domain from beacon chain
         info!("Will fetch builder_index and signing domain from beacon chain in background");
-        let provider = Arc::new(LiveEpbsBidProvider::new_uninitialized(
-            LiveEpbsBidProviderConfig::default(),
-        ));
+        let provider_config = LiveEpbsBidProviderConfig {
+            bid_value_subsidy_gwei: self.epbs_p2p_bid_value_subsidy_gwei,
+            ..LiveEpbsBidProviderConfig::default()
+        };
+        if provider_config.bid_value_subsidy_gwei > 0 {
+            warn!(
+                subsidy_gwei = provider_config.bid_value_subsidy_gwei,
+                "EPBS bid-value subsidy is non-zero. This is a devnet/testing knob — \
+                 every bid will pay the proposer this much above the block's true value. \
+                 Set epbs_p2p_bid_value_subsidy_gwei=0 for production."
+            );
+        }
+        let provider = Arc::new(LiveEpbsBidProvider::new_uninitialized(provider_config));
 
         let p2p_beacon_client = clients.first().cloned();
 
         // Spawn background task to fetch builder_index and signing domain, then initialize signer
         let provider_clone = provider.clone();
         tokio::spawn(async move {
-            // retry config
-            const MAX_RETRIES: u32 = 120; // ~20 minutes with max backoff
+            // retry indefinitely. Builder activation can take 25-30 min
+            // on mainnet, and if the beacon node goes down the signer should still
+            // come up when it's back. Better to log warnings than to give up.
             const INITIAL_BACKOFF_MS: u64 = 1000;
             const MAX_BACKOFF_MS: u64 = 10000;
 
             let mut last_error: Option<eyre::Report> = None;
-            let mut attempt = 0;
+            let mut attempt: u32 = 0;
 
             loop {
                 attempt += 1;
 
                 for client in &clients {
-                    // Look up builder_index by public key
-                    let builder_index = match client.get_validator_by_pubkey(&pubkey_bytes).await {
-                        Ok(validator) => {
-                            info!(
-                                builder_index = validator.index,
-                                pubkey = %validator.validator.pubkey,
-                                status = %validator.status,
-                                "Found builder validator on beacon chain"
-                            );
-
-                            // Check if the validator is a builder (has BUILDER_WITHDRAWAL_PREFIX)
-                            if !validator
-                                .validator
-                                .withdrawal_credentials
-                                .starts_with("0x03")
-                            {
-                                tracing::warn!(
-                                    withdrawal_credentials = %validator.validator.withdrawal_credentials,
-                                    "Validator does not have BUILDER_WITHDRAWAL_PREFIX (0x03). \
-                                     This validator may not be recognized as a builder."
+                    let builder_index =
+                        match client.get_builder_index_by_pubkey(&pubkey_bytes).await {
+                            Ok(index) => {
+                                info!(
+                                    builder_index = index,
+                                    "Found builder in beacon state builders registry"
                                 );
+                                index
                             }
-
-                            validator.index
-                        }
-                        Err(e) => {
-                            last_error = Some(e);
-                            continue;
-                        }
-                    };
+                            Err(e) => {
+                                tracing::warn!(
+                                    attempt,
+                                    beacon_endpoint = %client.endpoint(),
+                                    pubkey = hex::encode(&pubkey_bytes),
+                                    error = ?e,
+                                    "Failed to fetch builder index from beacon state"
+                                );
+                                last_error = Some(e);
+                                continue;
+                            }
+                        };
 
                     // Get signing domain (from config or beacon chain)
                     let domain = if let Some(domain) = signing_domain {
@@ -490,13 +506,26 @@ impl L1Config {
                     } else {
                         match client.get_genesis().await {
                             Ok(genesis) => {
+                                let fork_version = match client.get_head_fork_version().await {
+                                    Ok(v) => {
+                                        info!(?v, "Using current head fork_version for EPBS signing domain");
+                                        v
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = ?e,
+                                            "Failed to fetch head fork version, falling back to genesis fork version"
+                                        );
+                                        genesis.genesis_fork_version
+                                    }
+                                };
                                 let domain = compute_epbs_domain(
-                                    genesis.genesis_fork_version,
+                                    fork_version,
                                     genesis.genesis_validators_root,
                                 );
                                 info!(
                                     ?domain,
-                                    genesis_fork_version = ?genesis.genesis_fork_version,
+                                    ?fork_version,
                                     genesis_validators_root = ?genesis.genesis_validators_root,
                                     "Computed EPBS signing domain from beacon chain"
                                 );
@@ -519,25 +548,26 @@ impl L1Config {
                     return;
                 }
 
-                if attempt >= MAX_RETRIES {
-                    tracing::error!(
-                        "Failed to initialize EPBS signer after {} attempts: {:?}. EPBS bids will not be generated.",
-                        MAX_RETRIES,
-                        last_error
-                    );
-                    return;
-                }
-
+                let backoff_exp = std::cmp::min(attempt.saturating_sub(1), 10);
                 let backoff_ms: u64 =
-                    std::cmp::min(INITIAL_BACKOFF_MS * 2u64.pow(attempt - 1), MAX_BACKOFF_MS);
+                    std::cmp::min(INITIAL_BACKOFF_MS * 2u64.pow(backoff_exp), MAX_BACKOFF_MS);
 
-                info!(
-                    attempt,
-                    max_retries = MAX_RETRIES,
-                    backoff_ms,
-                    error = ?last_error,
-                    "Beacon client not ready, retrying in background..."
-                );
+                // log at info level every 10 attempts to avoid log spam on long waits
+                // (e.g. waiting for builder deposit to activate on mainnet).
+                if attempt % 10 == 1 {
+                    info!(
+                        attempt,
+                        backoff_ms,
+                        error = ?last_error,
+                        "Beacon client not ready, retrying in background..."
+                    );
+                } else {
+                    tracing::debug!(
+                        attempt,
+                        backoff_ms,
+                        "Beacon client not ready, retrying in background..."
+                    );
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
             }
         });
@@ -557,9 +587,44 @@ impl L1Config {
 
         // Create P2P service if enabled
         let p2p_service = if self.epbs_p2p_enabled {
-            use super::builder_api::p2p::{EpbsP2PConfig};
+            use super::builder_api::p2p::EpbsP2PConfig;
 
             info!("EPBS P2P builder service is enabled");
+
+            let genesis_time = if let Some(client) = p2p_beacon_client.as_ref() {
+                let mut result: Option<u64> = None;
+                for attempt in 1..=10 {
+                    match client.get_genesis().await {
+                        Ok(g) => {
+                            result = Some(g.genesis_time);
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                attempt,
+                                error = ?e,
+                                "Failed to fetch genesis_time, retrying..."
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                    }
+                }
+                if let Some(t) = result {
+                    info!(
+                        genesis_time = t,
+                        "Fetched genesis_time for EPBS P2P scheduler"
+                    );
+                    t
+                } else {
+                    tracing::warn!(
+                        "Failed to fetch genesis_time after 10 attempts; \
+                         falling back to 0 (P2P scheduler will use stale slot numbers)"
+                    );
+                    0
+                }
+            } else {
+                0
+            };
 
             let p2p_config = EpbsP2PConfig {
                 enabled: true,
@@ -567,10 +632,8 @@ impl L1Config {
                 bid_end_ms: self.epbs_p2p_bid_end_ms,
                 bid_interval_ms: self.epbs_p2p_bid_interval_ms,
                 bid_value_increment_gwei: self.epbs_p2p_bid_value_increment_gwei,
-                // TODO: make this better
-                // genesis_time and seconds_per_slot will be set once beacon chain is available.
-                // For now use defaults; the service waits for the signer to be ready anyway.
-                genesis_time: 0,
+                bid_value_subsidy_gwei: self.epbs_p2p_bid_value_subsidy_gwei,
+                genesis_time,
                 seconds_per_slot: 12,
             };
 
@@ -705,7 +768,7 @@ impl L1Config {
                 }
             }
         }
-        if slot_info_providers.is_empty() {
+        if slot_info_providers.is_empty() && !self.epbs_p2p_enabled {
             return Err(eyre::eyre!("No relays enabled for getting slot info"));
         }
         Ok((submitters, slot_info_providers))
@@ -800,7 +863,7 @@ impl L1Config {
         );
 
         let (submitters, slot_info_providers) = self.create_relays()?;
-        if slot_info_providers.is_empty() {
+        if slot_info_providers.is_empty() && !self.epbs_p2p_enabled {
             eyre::bail!("No slot info providers provided");
         }
 
@@ -853,7 +916,7 @@ impl LiveBuilderConfig for Config {
             create_wallet_balance_watcher(provider.clone(), &self.base_config).await?;
 
         // Create EPBS components if enabled
-        let epbs_components = self.l1_config.create_epbs_components()?;
+        let epbs_components = self.l1_config.create_epbs_components().await?;
         let (block_observer, epbs_server, epbs_p2p_service): (
             Option<Arc<dyn block_observer::BlockObserver>>,
             Option<EpbsBuilderServer>,
@@ -1119,8 +1182,16 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let rocksdb_provider = reth_provider::providers::RocksDBProvider::new(&reth_db_path)?;
+    let runtime = reth_tasks::Runtime::test();
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        root_hash_config,
+        rocksdb_provider,
+        runtime,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -1440,6 +1511,7 @@ where
     .await??)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_sink_factory_and_relays<P>(
     base_config: &BaseConfig,
     l1_config: &L1Config,

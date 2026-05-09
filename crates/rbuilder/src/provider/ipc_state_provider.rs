@@ -16,7 +16,7 @@ use dashmap::DashMap;
 use quick_cache::sync::Cache;
 use reipc::rpc_provider::RpcProvider;
 use reth_errors::{ProviderError, ProviderResult};
-use reth_primitives::{Account, Bytecode};
+use reth_primitives_traits::{Account, Bytecode};
 use reth_provider::{
     errors::any::AnyError, AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider,
     StateProofProvider, StateProvider, StateProviderBox, StateRootProvider, StorageRootProvider,

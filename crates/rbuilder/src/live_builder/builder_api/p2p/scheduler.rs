@@ -12,10 +12,10 @@ pub struct BidScheduler {
     genesis_time: u64,
     /// Slot duration in seconds.
     seconds_per_slot: u64,
-    /// MS into slot to start bidding.
-    bid_start_ms: u64,
-    /// MS into slot to stop bidding.
-    bid_end_ms: u64,
+    /// Ms relative to slot start when bidding opens (negative = before slot start).
+    bid_start_ms: i64,
+    /// Ms relative to slot start when bidding closes (typically positive).
+    bid_end_ms: i64,
     /// Interval between bid resubmissions, 0 = single bid mode.
     bid_interval_ms: u64,
 }
@@ -36,73 +36,49 @@ impl BidScheduler {
         self.genesis_time + slot * self.seconds_per_slot
     }
 
-    /// Returns ms elapsed since the start of the given slot.
-    /// Returns None if the slot hasn't started yet.
-    pub fn ms_into_slot(&self, slot: u64) -> Option<u64> {
-        let slot_start = self.slot_start_time(slot);
-        let now = SystemTime::now()
+    /// Returns ms relative to the start of the given slot.
+    /// Negative when wall-clock is before the slot starts; positive once the
+    /// slot has begun. Computed in i128 to avoid overflow on the subtraction
+    /// before truncating to i64 at the end.
+    pub fn ms_relative_to_slot(&self, slot: u64) -> i64 {
+        let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        let now_ms = now.as_millis() as u64;
-        let slot_start_ms = slot_start * 1000;
-
-        if now_ms >= slot_start_ms {
-            Some(now_ms - slot_start_ms)
-        } else {
-            None
-        }
+            .unwrap_or_default()
+            .as_millis() as i128;
+        let slot_start_ms = (self.slot_start_time(slot) as i128) * 1000;
+        (now_ms - slot_start_ms) as i64
     }
 
-    /// Returns true if we are currently within the biding window for the given slot.
+    /// Returns true if we are currently within the bidding window for the given slot.
+    /// Window: [bid_start_ms, bid_end_ms) relative to slot start.
     pub fn is_in_bidding_window(&self, slot: u64) -> bool {
-        match self.ms_into_slot(slot) {
-            Some(ms) => ms >= self.bid_start_ms && ms < self.bid_end_ms,
-            None => false,
-        }
+        let rel = self.ms_relative_to_slot(slot);
+        rel >= self.bid_start_ms && rel < self.bid_end_ms
     }
 
     /// Returns the duration until the bidding window opens for the given slot.
     /// Returns Duration::ZERO if the window is already open.
     /// Returns None if the bidding window has already closed.
     pub fn time_until_bid_start(&self, slot: u64) -> Option<Duration> {
-        let slot_start_ms = self.slot_start_time(slot) * 1000;
-        let bid_open_ms = slot_start_ms + self.bid_start_ms;
-        let bid_close_ms = slot_start_ms + self.bid_end_ms;
-
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        if now_ms >= bid_close_ms {
-            // window already closed
+        let rel = self.ms_relative_to_slot(slot);
+        if rel >= self.bid_end_ms {
             return None;
         }
-
-        if now_ms >= bid_open_ms {
-            // window already open
-            return Some(Duration::ZERO); 
+        if rel >= self.bid_start_ms {
+            return Some(Duration::ZERO);
         }
-
-        Some(Duration::from_millis(bid_open_ms - now_ms))
+        Some(Duration::from_millis((self.bid_start_ms - rel) as u64))
     }
 
     /// Returns the duration until the bidding window closes for the given slot.
     /// Returns None if the window has already closed.
     pub fn time_until_bid_end(&self, slot: u64) -> Option<Duration> {
-        let slot_start_ms = self.slot_start_time(slot) * 1000;
-        let bid_close_ms = slot_start_ms + self.bid_end_ms;
-
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        if now_ms >= bid_close_ms {
+        let rel = self.ms_relative_to_slot(slot);
+        if rel >= self.bid_end_ms {
             return None;
         }
-
-        Some(Duration::from_millis(bid_close_ms - now_ms))
+        let remaining = self.bid_end_ms - rel;
+        Some(Duration::from_millis(remaining.max(0) as u64))
     }
 
     /// Whether this scheduler is in single bid mode i.e no resubmission in the slot.
@@ -140,9 +116,9 @@ mod tests {
         BidScheduler {
             genesis_time,
             seconds_per_slot: 12,
-            bid_start_ms: 0,
-            bid_end_ms: 4000,
-            bid_interval_ms: 500,
+            bid_start_ms: -1000,
+            bid_end_ms: 1000,
+            bid_interval_ms: 250,
         }
     }
 
@@ -165,6 +141,50 @@ mod tests {
     #[test]
     fn test_bid_interval() {
         let s = make_scheduler(0);
-        assert_eq!(s.bid_interval(), Some(Duration::from_millis(500)));
+        assert_eq!(s.bid_interval(), Some(Duration::from_millis(250)));
+    }
+
+    #[test]
+    fn test_ms_relative_to_slot_negative_pre_slot() {
+        // build a scheduler whose slot 1 starts ~1 hour in the future. The
+        // relative time for slot 1 should be a large negative number.
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let s = make_scheduler(now_secs + 3600);
+        let rel = s.ms_relative_to_slot(0);
+        assert!(rel < 0, "expected negative rel, got {}", rel);
+        assert!(!s.is_in_bidding_window(0));
+    }
+
+    #[test]
+    fn test_ms_relative_to_slot_in_window() {
+        // set genesis to current second so slot 0 starts at the rounded down
+        // second of now. ms_relative_to_slot(0) then equals now_ms % 1000,
+        // which is in [0, 999] — always inside the [-1000, +1000) window.
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let s = make_scheduler(now_secs);
+        let rel = s.ms_relative_to_slot(0);
+        assert!(
+            (0..1000).contains(&rel),
+            "expected rel in [0, 1000), got {}",
+            rel
+        );
+        assert!(s.is_in_bidding_window(0));
+    }
+
+    #[test]
+    fn test_ms_relative_to_slot_post_window() {
+        // slot 0 started 5s ago rel is ~+5000, outside [-1000, +1000).
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let s = make_scheduler(now_secs.saturating_sub(5));
+        assert!(!s.is_in_bidding_window(0));
     }
 }

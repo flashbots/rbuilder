@@ -32,7 +32,7 @@ pub async fn get_execution_payload_bid_handler(
 
     let params = GetBidParams {
         slot,
-        parent_hash: parent_hash.into(),
+        parent_hash,
         parent_root,
         proposer_index,
         fee_recipient,

@@ -686,7 +686,7 @@ impl MultiRelayBlockBuildingSink for RelaySetDispatcher {
     fn new_block(&self, relay_set: RelaySet, block: Block) {
         if let Some(sink) = self.sinks.get(&relay_set) {
             sink.new_block(block);
-        } else {
+        } else if !relay_set.relays().is_empty() {
             error!(relay_set = ?relay_set, "Relay set not found");
         }
     }

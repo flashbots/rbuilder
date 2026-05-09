@@ -18,7 +18,7 @@ use reth_trie::{
     proof::{Proof, StorageProof},
     MultiProofTargets,
 };
-use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory};
+use reth_trie_db::{DatabaseHashedCursorFactory, DatabaseTrieCursorFactory, LegacyKeyAdapter};
 
 use super::SharedCacheV2;
 
@@ -39,12 +39,12 @@ impl MissingNodesFetcher {
             .storage_proof_targets
             .entry(*hashed_address)
             .or_default();
-        entry.0.insert(pad_path(node.clone()));
+        entry.0.insert(pad_path(node));
         entry.1.push(node);
     }
 
     pub fn add_missing_account_node(&mut self, node: Nibbles) {
-        self.account_proof_targets.push(pad_path(node.clone()));
+        self.account_proof_targets.push(pad_path(node));
         self.account_proof_requested_nodes.push(node);
     }
 
@@ -80,7 +80,7 @@ impl MissingNodesFetcher {
                     }
 
                     let proof = StorageProof::new_hashed(
-                        DatabaseTrieCursorFactory::new(provider.tx_ref()),
+                        DatabaseTrieCursorFactory::<_, LegacyKeyAdapter>::new(provider.tx_ref()),
                         DatabaseHashedCursorFactory::new(provider.tx_ref()),
                         hashed_address,
                     );
@@ -90,7 +90,7 @@ impl MissingNodesFetcher {
                     *fetched_nodes.lock() += requested_proofs.len();
                     for requested_proof in requested_proofs {
                         let proof_for_node = storge_multiproof.subtree.matching_nodes_sorted(
-                            &convert_nibbles_to_reth_nybbles(requested_proof.clone()),
+                            &convert_nibbles_to_reth_nybbles(requested_proof),
                         );
                         let reth_proof_for_node = proof_for_node
                             .into_iter()
@@ -123,7 +123,7 @@ impl MissingNodesFetcher {
         }
 
         let proof = Proof::new(
-            DatabaseTrieCursorFactory::new(provider.tx_ref()),
+            DatabaseTrieCursorFactory::<_, LegacyKeyAdapter>::new(provider.tx_ref()),
             DatabaseHashedCursorFactory::new(provider.tx_ref()),
         );
         let targets = MultiProofTargets::accounts(std::mem::take(&mut self.account_proof_targets));
@@ -133,7 +133,7 @@ impl MissingNodesFetcher {
         for requested_node in self.account_proof_requested_nodes.drain(..) {
             let proof_for_node = multiproof
                 .account_subtree
-                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node.clone()));
+                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node));
 
             let reth_proof_for_node = proof_for_node
                 .into_iter()
@@ -149,9 +149,11 @@ impl MissingNodesFetcher {
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
+fn pad_path(path: Nibbles) -> B256 {
+    let mut v = path.to_vec();
+    v.resize(64, 0);
+    let padded = Nibbles::from_nibbles_unchecked(v);
     let mut res = B256::default();
-    path.pack_to(res.as_mut_slice());
+    padded.pack_to(res.as_mut_slice());
     res
 }

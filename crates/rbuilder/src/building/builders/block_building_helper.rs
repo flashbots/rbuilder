@@ -1,5 +1,5 @@
+use crate::building::SyncStateProvider;
 use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
-use reth_provider::StateProvider;
 use std::{
     cmp::max,
     sync::Arc,
@@ -36,7 +36,7 @@ use super::Block;
 /// 2 - Call lots of commit_order.
 /// 3 - Call set_trace_fill_time when you are done calling commit_order (we still have to review this step).
 /// 4 - Call finalize_block.
-pub trait BlockBuildingHelper: Send + Sync {
+pub trait BlockBuildingHelper: Send {
     fn box_clone(&self) -> Box<dyn BlockBuildingHelper>;
 
     /// Tries to add an order to the end of the block.
@@ -213,7 +213,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         built_block_id: BuiltBlockId,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<SyncStateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,
@@ -249,7 +249,7 @@ impl<
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_execution_tracer(
         built_block_id: BuiltBlockId,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<SyncStateProvider>,
         building_ctx: BlockBuildingContext,
         local_ctx: &mut ThreadBlockBuildingContext,
         builder_name: String,

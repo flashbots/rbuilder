@@ -5,7 +5,7 @@ use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{
     BlockReader, DatabaseProviderFactory, HeaderProvider, PruneCheckpointReader,
-    StageCheckpointReader, StateProviderBox, TrieReader,
+    StageCheckpointReader, StateProviderBox,
 };
 use tracing::error;
 
@@ -30,7 +30,13 @@ impl<P> StateProviderFactoryFromRethProvider<P> {
 impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + reth_provider::BlockNumReader
+                          + reth_provider::ChangeSetReader
+                          + reth_provider::StorageChangeSetReader
+                          + reth_provider::StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
         + Clone
@@ -69,7 +75,9 @@ where
     }
 
     fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
-        let hasher = self.history_by_block_hash(parent_num_hash.hash)?;
+        let hasher = crate::building::SyncStateProvider::new(
+            self.history_by_block_hash(parent_num_hash.hash)?,
+        );
         let parent_state_root = self
             .provider
             .header_by_hash_or_number(parent_num_hash.hash.into())?

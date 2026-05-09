@@ -156,14 +156,16 @@ mod test {
 
         let sidecar: SidecarBuilder<SimpleCoder> =
             SidecarBuilder::from_slice("Blobs are fun!".as_bytes());
-        let sidecar = sidecar.build().unwrap();
+        let sidecar: alloy_eips::eip4844::BlobTransactionSidecar = sidecar.build().unwrap();
 
         let gas_price = provider.get_gas_price().await.unwrap();
         let eip1559_est = provider.estimate_eip1559_fees().await.unwrap();
 
         let tx = TransactionRequest {
             max_fee_per_blob_gas: Some(gas_price),
-            sidecar: Some(sidecar),
+            sidecar: Some(alloy_eips::eip7594::BlobTransactionSidecarVariant::Eip4844(
+                sidecar,
+            )),
             ..TransactionRequest::default()
                 .with_to(alice)
                 .with_nonce(0)

@@ -4,7 +4,7 @@ use rbuilder_primitives::mev_boost::{
     ssz_roots::{tx_ssz_leaf_root, CompactSszTransactionTree},
     BidAdjustmentStateProofs,
 };
-use reth_primitives::TransactionSigned;
+use reth_ethereum_primitives::TransactionSigned;
 use std::collections::{HashMap, HashSet};
 use tracing::*;
 

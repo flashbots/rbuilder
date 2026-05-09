@@ -144,6 +144,7 @@ mod tests {
                 nonce: 0,
                 code_hash: Default::default(),
                 code: None,
+                account_id: None,
             }),
         }
     }

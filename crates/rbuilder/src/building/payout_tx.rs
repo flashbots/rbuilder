@@ -8,8 +8,9 @@ use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use alloy_rlp::Encodable as _;
 use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
+use reth_ethereum_primitives::{Transaction, TransactionSigned};
 use reth_evm::Evm;
-use reth_primitives::{Recovered, Transaction, TransactionSigned};
+use reth_primitives_traits::Recovered;
 use revm::context::result::{EVMError, ExecutionResult};
 
 pub fn create_payout_tx(
@@ -42,7 +43,7 @@ pub enum PayoutTxErr {
     #[error("Signature error: {0}")]
     SignError(#[from] secp256k1::Error),
     #[error("EVM error: {0}")]
-    EvmError(#[from] EVMError<ProviderError>),
+    EvmError(#[from] EVMError<revm::database_interface::bal::EvmDatabaseError<ProviderError>>),
 }
 
 impl PartialEq for PayoutTxErr {
@@ -86,17 +87,16 @@ pub fn insert_test_payout_tx(
     let mut db = state.new_db_ref(&ctx.shared_cached_reads, &mut local_ctx.cached_reads);
     let mut evm = ctx.evm_factory.create_evm(db.as_mut(), ctx.evm_env.clone());
 
-    let cache_account = evm.db_mut().load_cache_account(builder_signer.address)?;
+    let cache_account = evm
+        .db_mut()
+        .load_cache_account(builder_signer.address)
+        .map_err(PayoutTxErr::Reth)?;
     let gas_fee = ctx.evm_env.block_env.basefee as u128 * gas_limit as u128;
     cache_account.increment_balance((tx_value + gas_fee) * 2); // double for luck
 
     let res = evm.transact(&tx)?;
     match res.result {
-        ExecutionResult::Success {
-            gas_used,
-            gas_refunded,
-            ..
-        } => Ok(Some(gas_used + gas_refunded)),
+        ExecutionResult::Success { gas, .. } => Ok(Some(gas.spent())),
         _ => Ok(None),
     }
 }
@@ -169,9 +169,7 @@ pub fn estimate_payout_gas_limit(
         .cfg_env
         .tx_gas_limit_cap
         .unwrap_or(ctx.evm_env.block_env.gas_limit);
-    let gas_left = max_tx_gas_limit
-        .checked_sub(space_used.gas)
-        .unwrap_or_default();
+    let gas_left = max_tx_gas_limit.saturating_sub(space_used.gas);
     let estimation = insert_test_payout_tx(to, ctx, local_ctx, state, gas_left)?
         .ok_or(EstimatePayoutGasErr::FailedToEstimate)?;
 
@@ -214,7 +212,7 @@ mod tests {
     use assert_matches::assert_matches;
     use reth_chainspec::{EthereumHardfork, MAINNET};
     use reth_db::{tables, transaction::DbTxMut};
-    use reth_primitives::Account;
+    use reth_primitives_traits::Account;
     use reth_provider::test_utils::create_test_provider_factory_with_chain_spec;
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;

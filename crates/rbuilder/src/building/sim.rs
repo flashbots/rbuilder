@@ -6,7 +6,7 @@ use super::{
 use crate::{
     building::{
         order_is_worth_executing, BlockBuildingContext, BlockBuildingSpaceState, BlockState,
-        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer,
+        CriticalCommitOrderError, NullPartialBlockForkExecutionTracer, SyncStateProvider,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
     provider::StateProviderFactory,
@@ -18,7 +18,6 @@ use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
-use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -324,7 +323,7 @@ where
 {
     let nonces = {
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(state.into())
+        NonceCache::new(Arc::new(SyncStateProvider::new(state)))
     };
     let mut sim_tree = SimTree::new(nonces);
 
@@ -339,8 +338,9 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let mut state_for_sim =
-        Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let mut state_for_sim = Arc::new(SyncStateProvider::new(
+        provider.history_by_block_hash(ctx.attributes.parent)?,
+    ));
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {
         // mix new orders into the sim_tree

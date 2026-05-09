@@ -1,7 +1,13 @@
 use alloy_consensus::SignableTransaction;
-use alloy_primitives::{Address, Signature, B256, U256};
-use reth_primitives::{public_key_to_address, Recovered, Transaction, TransactionSigned};
-use secp256k1::{Message, SecretKey, SECP256K1};
+use alloy_primitives::{keccak256, Address, Signature, B256, U256};
+use reth_ethereum_primitives::{Transaction, TransactionSigned};
+use reth_primitives_traits::Recovered;
+use secp256k1::{Message, PublicKey, SecretKey, SECP256K1};
+
+fn public_key_to_address(pubkey: PublicKey) -> Address {
+    let hash = keccak256(&pubkey.serialize_uncompressed()[1..]);
+    Address::from_slice(&hash[12..])
+}
 
 /// Simple struct to sign txs/messages.
 /// Mainly used to sign payout txs from the builder and to create test data.

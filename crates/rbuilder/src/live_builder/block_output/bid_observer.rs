@@ -1,5 +1,4 @@
 use alloy_primitives::U256;
-use reth_primitives::SealedBlock;
 
 use crate::{building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData};
 

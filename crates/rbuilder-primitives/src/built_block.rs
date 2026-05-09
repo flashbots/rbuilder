@@ -21,7 +21,9 @@ use alloy_rpc_types_engine::{
     ExecutionPayloadV3,
 };
 use reth_chainspec::{ChainSpec, EthereumHardforks};
-use reth_primitives::SealedBlock;
+use reth_primitives_traits::SealedBlock;
+
+type EthSealedBlock = SealedBlock<reth_ethereum_primitives::Block>;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -155,7 +157,7 @@ fn marshall_txs_blobs_sidecars_v2(
 pub fn block_to_execution_payload(
     chain_spec: &ChainSpec,
     attrs: &PayloadAttributesData,
-    sealed_block: &SealedBlock,
+    sealed_block: &EthSealedBlock,
 ) -> ExecutionPayload {
     let transactions = sealed_block
         .body()

@@ -167,12 +167,12 @@ impl FixedTrie {
         for (ptr, node) in &diff_trie.nodes {
             let fixed_node = match &node.kind {
                 DiffTrieNodeKind::Leaf(leaf) => FixedTrieNode::Leaf(Arc::new(FixedLeafNode {
-                    key: leaf.key().clone(),
+                    key: *leaf.key(),
                     value: leaf.value().clone(),
                 })),
                 DiffTrieNodeKind::Extension(ext) => FixedTrieNode::Extension {
                     node: Arc::new(FixedExtensionNode {
-                        key: ext.key().clone(),
+                        key: *ext.key(),
                         child: ext
                             .child
                             .rlp_pointer
@@ -261,7 +261,7 @@ impl FixedTrie {
 
             // here we find parent to link with this new node
             let mut current_path = Nibbles::new();
-            let mut path_left = path.clone();
+            let mut path_left = *path;
             let mut current_node = self.head;
 
             let mut parent: Option<u64> = None;
@@ -286,8 +286,9 @@ impl FixedTrie {
                             parent_child_idx = None;
 
                             let len = node.key.len();
-                            current_path.extend_from_slice_unchecked(&path_left[..len]);
-                            path_left.as_mut_vec_unchecked().drain(..len);
+                            let prefix = path_left.slice(..len);
+                            current_path.extend(&prefix);
+                            path_left = path_left.slice(len..);
 
                             if path_left.is_empty() {
                                 break;
@@ -455,11 +456,10 @@ impl FixedTrie {
                                         // orphan node is missing
                                         // we stepped into child above so the path is the path of current child and orphan child differs
                                         // only in last nibble
-                                        let mut path = c.current_path.clone();
-                                        path.as_mut_vec_unchecked()
-                                            .last_mut()
-                                            .map(|n| *n = orphan_nibble)
-                                            .unwrap();
+                                        let mut path = c.current_path;
+                                        if !path.is_empty() {
+                                            path.set_at(path.len() - 1, orphan_nibble);
+                                        }
                                         missing_nodes.push(path);
                                     }
                                 }

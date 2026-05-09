@@ -29,25 +29,28 @@ pub fn rlp_pointer(rlp_encode: Bytes) -> Bytes {
 }
 
 pub fn concat_path(p1: &Nibbles, p2: &[u8]) -> Nibbles {
-    let mut result = Nibbles::with_capacity(p1.len() + p2.len());
-    result.extend_from_slice_unchecked(p1);
-    result.extend_from_slice_unchecked(p2);
+    let mut result = *p1;
+    let p2_nibbles = Nibbles::from_nibbles_unchecked(p2);
+    result.extend(&p2_nibbles);
     result
 }
 
 pub fn strip_first_nibble_mut(p: &mut Nibbles) -> u8 {
-    let nibble = p[0];
-    let vec = p.as_mut_vec_unchecked();
+    let nibble = p.get_unchecked(0);
+    let mut vec = p.to_vec();
     vec.remove(0);
+    *p = Nibbles::from_nibbles_unchecked(vec);
     nibble
 }
 
 #[inline]
 pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibbles, Nibbles) {
     let prefix_len = p1.common_prefix_length(p2);
-    let prefix = Nibbles::from_nibbles_unchecked(&p1[..prefix_len]);
-    let suffix1 = Nibbles::from_nibbles_unchecked(&p1[prefix_len..]);
-    let suffix2 = Nibbles::from_nibbles_unchecked(&p2[prefix_len..]);
+    let p1_vec = p1.to_vec();
+    let p2_vec = p2.to_vec();
+    let prefix = Nibbles::from_nibbles_unchecked(&p1_vec[..prefix_len]);
+    let suffix1 = Nibbles::from_nibbles_unchecked(&p1_vec[prefix_len..]);
+    let suffix2 = Nibbles::from_nibbles_unchecked(&p2_vec[prefix_len..]);
 
     (prefix, suffix1, suffix2)
 }
@@ -137,15 +140,14 @@ fn mismatch_chunks<const N: usize>(xs: &[u8], ys: &[u8]) -> usize {
         .count()
 }
 
-// rbuilder uses nybbles v3.3.0 and reth_trie uses nybbles v4.3.0. This is a temporary fix to convert between the two.
-// We can remove the below methods once rbuilder has been upgraded to nybbles v4.3.0.
-// nybbles v4.3.0 has a breaking change (byte array with 1 byte per nybble vs U256 packed data + length) in the API which breaks a lot of parts of the eth sparse trie code.
+// rbuilder and reth_trie now both use nybbles v0.4.x, so these are identity conversions.
+// Kept for backward compatibility with call sites.
 #[inline]
 pub fn convert_reth_nybbles_to_nibbles(n: reth_trie::Nibbles) -> Nibbles {
-    Nibbles::from_nibbles(n.to_vec())
+    n
 }
 
 #[inline]
 pub fn convert_nibbles_to_reth_nybbles(n: Nibbles) -> reth_trie::Nibbles {
-    reth_trie::Nibbles::from_nibbles(n.as_slice())
+    n
 }
