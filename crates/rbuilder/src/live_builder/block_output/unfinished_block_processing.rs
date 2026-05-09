@@ -162,7 +162,15 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
         // extract slot info for block observer
         let slot = slot_data.slot();
         let parent_hash = slot_data.payload_attributes_event.data.parent_block_hash;
+        // Beacon parent block root from payload_attributes — used as
+        // bid.parent_block_root in EPBS bids per gloas/builder.md.
+        let parent_block_root = slot_data.parent_block_root();
 
+        info!(
+            relay_set_count = input.last_finalize_commands.len(),
+            has_observer = self.block_observer.is_some(),
+            "Spawning finalize threads for slot"
+        );
         for (relay_set, last_finalize_command) in input.last_finalize_commands.iter() {
             let finalized_blocks = input.pre_finalized_multi_blocks.clone();
             let cancellation_token = cancel.clone();
@@ -184,6 +192,7 @@ impl<P: StateProviderFactory> UnfinishedBuiltBlocksInputFactory<P> {
                         block_observer,
                         slot,
                         parent_hash,
+                        parent_block_root,
                     )
                 })
                 .unwrap();
@@ -457,7 +466,10 @@ impl UnfinishedBuiltBlocksInput {
         let id_span = tracing::info_span!("block_id", block_id = bid.block_id.0);
         let _guard_id_span = id_span.enter();
 
-        trace!(?bid, "Received seal command");
+        info!(
+            payout_info_count = bid.payout_info.len(),
+            "Received seal command"
+        );
 
         let mut unused_multi_blocks = Vec::new();
         let mut found_multi_block: Option<MultiPrefinalizedBlock> = None;
@@ -603,14 +615,21 @@ impl UnfinishedBuiltBlocksInput {
                 block_building_helper,
                 local_ctx,
             );
+            let relay_set_count = multi_prefinalized_block
+                .prefinalized_blocks_by_relay_set
+                .len();
             self.pre_finalized_multi_blocks
                 .lock()
                 .push(multi_prefinalized_block);
 
             // Must update creation time here because since constructor we did some stuff and we want to measure only bidding core timings.
             block_descriptor.creation_time = OffsetDateTime::now_utc();
+            info!(
+                block_id = block_id.0,
+                relay_set_count,
+                "Prefinalized block, notifying bidding service"
+            );
             slot_bidder.notify_new_built_block(block_descriptor);
-            trace!("Notified bidding service");
         }
         trace!("Finished prefinalize_worker");
     }
@@ -629,6 +648,7 @@ impl UnfinishedBuiltBlocksInput {
         block_observer: Option<Arc<dyn BlockObserver>>,
         slot: u64,
         parent_hash: alloy_primitives::BlockHash,
+        parent_block_root: alloy_primitives::B256,
     ) {
         loop {
             if cancellation_token.is_cancelled() {
@@ -696,7 +716,10 @@ impl UnfinishedBuiltBlocksInput {
 
             // Notify block observer (EPBS bid provider) of the new block
             if let Some(observer) = &block_observer {
-                observer.on_block_built(slot, parent_hash, &result.block);
+                info!(slot, ?parent_hash, ?parent_block_root, "Finalize thread notifying block observer");
+                observer.on_block_built(slot, parent_hash, parent_block_root, &result.block);
+            } else {
+                tracing::debug!(slot, "Finalize thread: no block observer configured");
             }
 
             block_building_sink.new_block(relay_set.clone(), result.block);

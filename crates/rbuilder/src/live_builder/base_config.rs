@@ -30,7 +30,7 @@ use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_primitives::StaticFileSegment;
+use reth_provider::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
 use serde_with::serde_as;
@@ -315,9 +315,29 @@ impl BaseConfig {
                 "root_hash_compare_sparse_trie can't be set without root_hash_use_sparse_trie"
             );
         }
-        // temporary guard until reth is fixed
-        if !self.root_hash_use_sparse_trie || self.root_hash_compare_sparse_trie {
-            eyre::bail!("root_hash_use_sparse_trie=true and root_hash_compare_sparse_trie=false must be set, otherwise node will produce incorrect blocks or confusing error messages. These settings are enforced temporarily because upstream parallel root hash implementation is not correct.")
+        // TODO(EPBS-DEVNET): The original guard required `root_hash_use_sparse_trie=true`.
+        // It was relaxed because the sparse trie implementation panics with
+        // `alloy-trie 0.9.5` (`add_branch key ... self.key ...` ordering assertion)
+        // when running against the reth 2.0 fork used for the EPBS devnet.
+        //
+        // This relaxation is ONLY safe for devnet testing of EPBS bid signing/p2p flow.
+        // Bids built without sparse-trie-validated state roots may produce blocks
+        // that the beacon chain ultimately rejects. Restore the strict guard
+        // (or fix the sparse trie panic in eth-sparse-mpt) before any production use.
+        //
+        // It's also possible state-root recomputation isn't strictly needed for the
+        // bid path at all — the EL already produces a state_root via engine_getPayload.
+        // Investigate whether rbuilder can skip its own recomputation when the EL value
+        // is trusted (similar to buildoor's approach).
+        if self.root_hash_compare_sparse_trie {
+            eyre::bail!("root_hash_compare_sparse_trie=false must be set, otherwise node will produce incorrect blocks or confusing error messages.")
+        }
+        if !self.root_hash_use_sparse_trie {
+            tracing::warn!(
+                "root_hash_use_sparse_trie=false — using non-sparse trie path. \
+                 This bypasses a temporary guard relaxed for EPBS devnet testing. \
+                 NOT for production use. See TODO(EPBS-DEVNET) in base_config.rs."
+            );
         }
         let thread_pool = self.root_hash_thread_pool()?;
         let version = match self.root_hash_sparse_trie_version.as_str() {
@@ -576,8 +596,10 @@ pub fn create_provider_factory(
         }
     };
 
+    let rocksdb_provider = reth_provider::providers::RocksDBProvider::builder(&reth_db_path).with_default_tables().build()?;
+    let runtime = reth_tasks::Runtime::test();
     let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config, rocksdb_provider, runtime)?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -650,13 +672,18 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.keep());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
+        let rocksdb_provider = reth_provider::providers::RocksDBProvider::builder(data_dir.db().as_path()).with_default_tables().build().unwrap();
+        let runtime = reth_tasks::Runtime::test();
         let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
-        );
+            rocksdb_provider,
+            runtime,
+        ).unwrap();
         init_genesis(&provider_factory).unwrap();
+        drop(provider_factory);
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();

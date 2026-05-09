@@ -12,7 +12,10 @@ pub struct RevealHandler {
     beacon_client: Client,
     /// Shared signer for envelope signing.
     signer: Arc<RwLock<Option<EpbsBidSigner>>>,
-    /// Shared payload cache from the bid provider.
+    /// Shared payload cache from the bid provider, keyed by block_hash.
+    /// We key by block_hash (not slot) because we may submit multiple bids
+    /// per slot — the proposer can include any of them, and we need to
+    /// reveal the payload that backs the specific block_hash they picked.
     payload_cache: Arc<RwLock<HashMap<BlockHash, CachedPayloadData>>>,
 }
 
@@ -46,7 +49,12 @@ impl RevealHandler {
             "Our bid was included, starting payload reveal"
         );
 
-        // 1. look up the cached payload
+        // 1. look up the cached payload by the included bid's block_hash.
+        // The cache holds an entry for every block_hash we ever bid for,
+        // so even if the proposer included an earlier bid (not our latest),
+        // we still find the right payload here. Bounded growth is enforced
+        // by slot aware cleanup in the P2P main loop, not by overwriting on
+        // the same key.
         let cached = self
             .payload_cache
             .read()
@@ -54,7 +62,8 @@ impl RevealHandler {
             .cloned()
             .ok_or_else(|| {
                 eyre::eyre!(
-                    "No cached payload found for block_hash {:?} at slot {}",
+                    "No cached payload found for block_hash {:?} at slot {} \
+                     (likely the matching bid was generated before cleanup retention)",
                     block_hash,
                     slot
                 )
@@ -117,16 +126,28 @@ impl RevealHandler {
             signer.sign_envelope(&envelope)?
         };
 
+        // Materialize raw blob bytes + cell proofs from the cached sidecars.
+        // This is the only place we actually pay the per-blob heap copy cost
+        // (it happens once per won slot, not once per generated bid).
+        // TODO: rethink this plis, am not too confident about this
+        let blobs = cached.blobs();
+        let cell_proofs = cached.cell_proofs();
+
         info!(
             slot,
             ?block_hash,
             ?beacon_block_root,
+            blob_count = blobs.len(),
+            cell_proof_count = cell_proofs.len(),
             "Submitting signed execution payload envelope"
         );
 
-        // 4. submit to p2p via beacon api
+        // 4. submit to p2p via beacon api, including raw blobs and
+        // cell proofs so the beacon node can compute and broadcast
+        // DataColumnSidecars. Without these, peers fail data availability
+        // checks even though the envelope itself passes gossip validation.
         self.beacon_client
-            .submit_execution_payload_envelope(&signed_envelope)
+            .submit_execution_payload_envelope(&signed_envelope, &blobs, &cell_proofs)
             .await?;
 
         info!(

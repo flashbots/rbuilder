@@ -37,12 +37,15 @@ impl NewTrueBlockValueBiddingService {
             default_relay_set.remove(&relay);
             relay_sets_subsidies.insert(RelaySet::new(vec![relay]), subsidy);
         }
-        if !default_relay_set.is_empty() {
-            relay_sets_subsidies.insert(
-                RelaySet::new(default_relay_set.into_iter().collect()),
-                config.subsidy,
-            );
-        }
+        // TODO: this setup was done mainly for testing the implementation
+        // and should be subsituted with a better approach, maybe make passing relays as optional
+        // always insert a relay set — even if empty (EPBS-only mode with no relays).
+        // This ensures the bidding service produces seal commands so blocks flow
+        // through the finalization pipeline and reach the block observer.
+        relay_sets_subsidies.insert(
+            RelaySet::new(default_relay_set.into_iter().collect()),
+            config.subsidy,
+        );
 
         Ok(Self {
             slot_delta_to_start_bidding: config.slot_delta_to_start_bidding,
