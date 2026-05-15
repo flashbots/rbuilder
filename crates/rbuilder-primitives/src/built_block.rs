@@ -85,6 +85,9 @@ impl SignedBuiltBlock {
                     signature: self.signature,
                 }))
             }
+            ExecutionPayload::V4(_v4) => {
+                eyre::bail!("v4 payloads are not supported");
+            }
         }
     }
 }
@@ -165,19 +168,20 @@ pub fn block_to_execution_payload(
         .iter()
         .map(|tx| tx.encoded_2718().into())
         .collect();
+    let header = sealed_block.header();
     let payload_v1 = ExecutionPayloadV1 {
-        parent_hash: sealed_block.parent_hash,
-        fee_recipient: sealed_block.beneficiary,
-        state_root: sealed_block.state_root,
-        receipts_root: sealed_block.receipts_root,
-        logs_bloom: sealed_block.logs_bloom,
+        parent_hash: header.parent_hash,
+        fee_recipient: header.beneficiary,
+        state_root: header.state_root,
+        receipts_root: header.receipts_root,
+        logs_bloom: header.logs_bloom,
         prev_randao: attrs.payload_attributes.prev_randao,
-        block_number: sealed_block.number,
-        gas_limit: sealed_block.gas_limit,
-        gas_used: sealed_block.gas_used,
-        timestamp: sealed_block.timestamp,
-        extra_data: sealed_block.extra_data.clone(),
-        base_fee_per_gas: U256::from(sealed_block.base_fee_per_gas.unwrap_or_default()),
+        block_number: header.number,
+        gas_limit: header.gas_limit,
+        gas_used: header.gas_used,
+        timestamp: header.timestamp,
+        extra_data: header.extra_data.clone(),
+        base_fee_per_gas: U256::from(header.base_fee_per_gas.unwrap_or_default()),
         block_hash: sealed_block.hash(),
         transactions,
     };

@@ -8,7 +8,7 @@ use revm::{
     context::{Cfg, ContextTr},
     handler::PrecompileProvider,
     interpreter::{CallInputs, InterpreterResult},
-    primitives::hardfork::SpecId,
+    primitives::{hardfork::SpecId, AddressSet},
 };
 use std::{num::NonZeroUsize, sync::Arc};
 
@@ -85,7 +85,7 @@ impl<CTX: ContextTr, P: PrecompileProvider<CTX, Output = InterpreterResult>> Pre
         output
     }
 
-    fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
+    fn warm_addresses(&self) -> &AddressSet {
         self.precompile.warm_addresses()
     }
 

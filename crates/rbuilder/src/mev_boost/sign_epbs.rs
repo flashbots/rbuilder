@@ -69,7 +69,7 @@ impl EpbsBidSigner {
 
     /// Sign an ExecutionPayloadBid using lh ssz types.
     pub fn sign_bid(&self, bid: &ExecutionPayloadBid) -> eyre::Result<SignedExecutionPayloadBid> {
-        let lh_bid = to_lh_bid(bid);
+        let lh_bid = to_lh_bid(bid)?;
         let signing_root = lh_bid.signing_root(self.domain);
         let signature = self.sec.sign(signing_root.as_ref());
         let signature = BlsSignature::from_slice(&signature);
@@ -101,43 +101,8 @@ impl EpbsBidSigner {
 // bid conversion: alloy types -> lh types
 // ---------------------------------------------------------------------------
 
-fn to_lh_bid(bid: &ExecutionPayloadBid) -> LhExecutionPayloadBid {
-    let commitments_refs: Vec<&[u8]> = bid
-        .blob_kzg_commitments
-        .iter()
-        .map(|c| c.as_ref())
-        .collect();
-    let commitments_root =
-        rbuilder_primitives::mev_boost::ssz_roots::calculate_blob_kzg_commitments_root_ssz(
-            &commitments_refs,
-        );
-
-    LhExecutionPayloadBid {
-        parent_block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.parent_block_hash)),
-        parent_block_root: Hash256::from(bid.parent_block_root),
-        block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.block_hash)),
-        prev_randao: Hash256::from(bid.prev_randao),
-        fee_recipient: bid.fee_recipient,
-        gas_limit: bid.gas_limit,
-        builder_index: bid.builder_index,
-        slot: Slot::new(bid.slot),
-        value: bid.value,
-        execution_payment: bid.execution_payment,
-        blob_kzg_commitments_root: Hash256::from(commitments_root),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// envelope conversion: alloy types -> lh types
-// ---------------------------------------------------------------------------
-
-fn to_lh_envelope(
-    envelope: &ExecutionPayloadEnvelope,
-) -> eyre::Result<LhExecutionPayloadEnvelope<MainnetEthSpec>> {
-    let payload = to_lh_execution_payload(envelope)?;
-    let execution_requests = to_lh_execution_requests(&envelope.execution_requests)?;
-
-    let commitments: Vec<lighthouse_types::KzgCommitment> = envelope
+fn to_lh_bid(bid: &ExecutionPayloadBid) -> eyre::Result<LhExecutionPayloadBid<MainnetEthSpec>> {
+    let commitments: Vec<lighthouse_types::KzgCommitment> = bid
         .blob_kzg_commitments
         .iter()
         .map(|c| {
@@ -150,26 +115,48 @@ fn to_lh_envelope(
     let blob_kzg_commitments = KzgCommitments::<MainnetEthSpec>::new(commitments)
         .map_err(|e| eyre::eyre!("Too many blob KZG commitments: {:?}", e))?;
 
+    Ok(LhExecutionPayloadBid {
+        parent_block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.parent_block_hash)),
+        parent_block_root: Hash256::from(bid.parent_block_root),
+        block_hash: ExecutionBlockHash::from_root(Hash256::from(bid.block_hash)),
+        prev_randao: Hash256::from(bid.prev_randao),
+        fee_recipient: bid.fee_recipient,
+        gas_limit: bid.gas_limit,
+        builder_index: bid.builder_index,
+        slot: Slot::new(bid.slot),
+        value: bid.value,
+        execution_payment: bid.execution_payment,
+        blob_kzg_commitments,
+        execution_requests_root: Hash256::from(bid.execution_requests_root),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// envelope conversion: alloy types -> lh types
+// ---------------------------------------------------------------------------
+
+fn to_lh_envelope(
+    envelope: &ExecutionPayloadEnvelope,
+) -> eyre::Result<LhExecutionPayloadEnvelope<MainnetEthSpec>> {
+    let payload = to_lh_execution_payload(envelope)?;
+    let execution_requests = to_lh_execution_requests(&envelope.execution_requests)?;
+
+
     Ok(LhExecutionPayloadEnvelope {
         payload,
         execution_requests,
         builder_index: envelope.builder_index,
         beacon_block_root: Hash256::from(envelope.beacon_block_root),
-        slot: Slot::new(envelope.slot),
-        blob_kzg_commitments,
-        state_root: Hash256::from(envelope.state_root),
+        parent_beacon_block_root: Hash256::from(envelope.parent_beacon_block_root),
     })
 }
 
 fn to_lh_execution_payload(
     envelope: &ExecutionPayloadEnvelope,
 ) -> eyre::Result<ExecutionPayloadGloas<MainnetEthSpec>> {
-    let inner1 = &envelope.payload.payload_inner.payload_inner;
-    let inner2 = &envelope.payload.payload_inner;
-    let inner3 = &envelope.payload;
+    let p = &envelope.payload;
 
-    // convert transactions
-    let transactions: Vec<_> = inner1
+    let transactions: Vec<_> = p
         .transactions
         .iter()
         .map(|tx| {
@@ -180,8 +167,7 @@ fn to_lh_execution_payload(
     let transactions = VariableList::new(transactions)
         .map_err(|e| eyre::eyre!("Too many transactions: {:?}", e))?;
 
-    // convert withdrawals
-    let withdrawals: Vec<LhWithdrawal> = inner2
+    let withdrawals: Vec<LhWithdrawal> = p
         .withdrawals
         .iter()
         .map(|w| LhWithdrawal {
@@ -194,32 +180,36 @@ fn to_lh_execution_payload(
     let withdrawals =
         VariableList::new(withdrawals).map_err(|e| eyre::eyre!("Too many withdrawals: {:?}", e))?;
 
-    // convert extra_data
-    let extra_data = VariableList::new(inner1.extra_data.to_vec())
+    let extra_data = VariableList::new(p.extra_data.to_vec())
         .map_err(|e| eyre::eyre!("Extra data too long: {:?}", e))?;
 
-    // convert logs_bloom
-    let logs_bloom = lighthouse_ssz_types::FixedVector::new(inner1.logs_bloom.to_vec())
+    let logs_bloom = lighthouse_ssz_types::FixedVector::new(p.logs_bloom.to_vec())
         .map_err(|e| eyre::eyre!("Invalid logs_bloom: {:?}", e))?;
 
+    // glam-devnet-3 additions: block access list and the slot the payload is for.
+    let block_access_list = VariableList::new(p.block_access_list.to_vec())
+        .map_err(|e| eyre::eyre!("Block access list too large: {:?}", e))?;
+
     Ok(ExecutionPayloadGloas {
-        parent_hash: ExecutionBlockHash::from_root(Hash256::from(inner1.parent_hash)),
-        fee_recipient: inner1.fee_recipient,
-        state_root: Hash256::from(inner1.state_root),
-        receipts_root: Hash256::from(inner1.receipts_root),
+        parent_hash: ExecutionBlockHash::from_root(Hash256::from(p.parent_hash)),
+        fee_recipient: p.fee_recipient,
+        state_root: Hash256::from(p.state_root),
+        receipts_root: Hash256::from(p.receipts_root),
         logs_bloom,
-        prev_randao: Hash256::from(inner1.prev_randao),
-        block_number: inner1.block_number,
-        gas_limit: inner1.gas_limit,
-        gas_used: inner1.gas_used,
-        timestamp: inner1.timestamp,
+        prev_randao: Hash256::from(p.prev_randao),
+        block_number: p.block_number,
+        gas_limit: p.gas_limit,
+        gas_used: p.gas_used,
+        timestamp: p.timestamp,
         extra_data,
-        base_fee_per_gas: inner1.base_fee_per_gas,
-        block_hash: ExecutionBlockHash::from_root(Hash256::from(inner1.block_hash)),
+        base_fee_per_gas: p.base_fee_per_gas,
+        block_hash: ExecutionBlockHash::from_root(Hash256::from(p.block_hash)),
         transactions,
         withdrawals,
-        blob_gas_used: inner3.blob_gas_used,
-        excess_blob_gas: inner3.excess_blob_gas,
+        blob_gas_used: p.blob_gas_used,
+        excess_blob_gas: p.excess_blob_gas,
+        block_access_list,
+        slot_number: Slot::new(p.slot_number),
     })
 }
 
@@ -283,6 +273,14 @@ fn to_lh_execution_requests(
         withdrawals,
         consolidations,
     })
+}
+
+pub fn execution_requests_root(
+    requests: &rbuilder_primitives::epbs::ExecutionRequests,
+) -> eyre::Result<B256> {
+    use tree_hash::TreeHash;
+    let lh = to_lh_execution_requests(requests)?;
+    Ok(B256::from(lh.tree_hash_root()))
 }
 
 // ---------------------------------------------------------------------------

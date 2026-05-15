@@ -28,6 +28,7 @@ reth-db.workspace = true
 reth-errors.workspace = true
 reth-payload-builder.workspace = true
 reth-trie.workspace = true
+reth-trie-db.workspace = true
 reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
@@ -62,6 +63,7 @@ ethereum_ssz.workspace = true
 lighthouse_types.workspace = true
 lighthouse_bls.workspace = true
 lighthouse_ssz_types.workspace = true
+tree_hash.workspace = true
 
 test_utils = { path = "src/test_utils" }
 metrics_macros = { path = "src/telemetry/metrics_macros" }

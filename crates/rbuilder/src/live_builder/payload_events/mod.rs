@@ -33,6 +33,13 @@ use super::block_list_provider::BlockListProvider;
 const RECENTLY_SENT_EVENTS_BUFF: usize = 10;
 const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);
 
+// TODO(prysm-buildoor-apis): Remove this workaround once Prysm's
+// `bharath-123-buildoor-apis` branch is patched to populate the SSE
+// `payload_attributes` event's `parent_block_number` field correctly. Today
+// it always reports "0" post-Gloas, which breaks rbuilder's state-root
+// computation 
+pub type ParentNumberResolver = Arc<dyn Fn(B256) -> Option<u64> + Send + Sync>;
+
 /// If connection to the consensus client if broken we wait this time.
 /// One slot (12secs) is enough so we don't saturate any resource and we don't miss to many slots.
 const CONSENSUS_CLIENT_RECONNECT_WAIT: Duration = SLOT_DURATION;
@@ -104,7 +111,8 @@ impl MevBoostSlotData {
 /// - Call MevBoostSlotDataGenerator::spawn.
 /// - Poll new slots via the returned UnboundedReceiver on spawn.
 /// - If join with spawned task is needed await on the JoinHandle returned by spawn.
-#[derive(Debug)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct MevBoostSlotDataGenerator {
     cls: Vec<Client>,
     relays: Vec<MevBoostRelaySlotInfoProvider>,
@@ -112,6 +120,9 @@ pub struct MevBoostSlotDataGenerator {
     adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
     blocklist_provider: Arc<dyn BlockListProvider>,
     global_cancellation: CancellationToken,
+    /// See [`ParentNumberResolver`]; `None` disables the workaround
+    #[derivative(Debug = "ignore")]
+    parent_number_resolver: Option<ParentNumberResolver>,
 }
 
 impl MevBoostSlotDataGenerator {
@@ -122,6 +133,7 @@ impl MevBoostSlotDataGenerator {
         adjustment_fee_payers: HashMap<MevBoostRelayID, Address>,
         blocklist_provider: Arc<dyn BlockListProvider>,
         global_cancellation: CancellationToken,
+        parent_number_resolver: Option<ParentNumberResolver>,
     ) -> Self {
         Self {
             cls,
@@ -130,6 +142,7 @@ impl MevBoostSlotDataGenerator {
             adjustment_fee_payers,
             blocklist_provider,
             global_cancellation,
+            parent_number_resolver,
         }
     }
 
@@ -174,13 +187,26 @@ impl MevBoostSlotDataGenerator {
                 let payload_id: InternalPayloadId = payload_counter;
                 payload_counter += 1;
 
-                // fix b: TODO: fix this. Currently prysms fork delivers payload_attributes
-                // with a stale `parent_block_hash` (pre-envelope state.latest_block_hash,
-                // which is the previous-previous slot's revealed payload). The correct
-                // value — what forkchoice's VerifyParentBlockHash expects — is the
-                // parent beacon block's bid.message.block_hash. Override here so both
-                // the EL build and our outgoing bid use the right parent.
-                gloas_override_parent_block_hash(&self.cls, &mut event, payload_id).await;
+                // TODO(prysm-buildoor-apis): see ParentNumberResolver. prysms
+                // `bharath-123-buildoor-apis` branch sends `parent_block_number=0`
+                // in post gloas ss events while keeping `parent_block_hash`
+                // valid. Recover the real number from the el to keep the
+                // (number, hash) pair internally consistent for state-root
+                // computation.
+                if event.data.parent_block_number == 0 && event.data.parent_block_hash != B256::ZERO
+                {
+                    if let Some(resolver) = self.parent_number_resolver.as_ref() {
+                        if let Some(real_number) = resolver(event.data.parent_block_hash) {
+                            event.data.parent_block_number = real_number;
+                        } else {
+                            warn!(
+                                payload_id,
+                                parent_hash = ?event.data.parent_block_hash,
+                                "SSE parent_block_number=0 but EL provider could not resolve it"
+                            );
+                        }
+                    }
+                }
 
                 let slot = event.data.proposal_slot;
                 let block = event.data.parent_block_number + 1;
@@ -216,14 +242,13 @@ impl MevBoostSlotDataGenerator {
                     // TODO: per consensus-specs gloas/p2p-interface.md
                     // `bid.gas_limit` MUST equal `ProposerPreferences.gas_limit`
                     // for the slot. Until we receive prefs reliably via SSE,
-                    // hardcode the gas_limit kurtosis Prysm validators sign
-                    // (60_000_000 = DefaultBuilderGasLimit per Prysm config).
-                    // Bids with any other gas_limit fail the gossip [REJECT] rule.
-                    // This must be set here so reth builds the block with the
-                    // matching gas_limit; we can't override it post build.
+                    // hardcode the gas_limit Prysm validators actually sign
+                    // for testing purpose i am currently setting 150_000_000,
+                    // but it should be derived from the proposer preferences
+                    // to pass the p2p validation.
                     let sd = SlotData {
                         fee_recipient,
-                        gas_limit: 60_000_000,
+                        gas_limit: 150_000_000,
                         pubkey: alloy_rpc_types_beacon::BlsPublicKey::ZERO,
                     };
                     let rr = Arc::new(HashMap::default());
@@ -319,50 +344,6 @@ fn check_slot_data_for_blocklist(
         return Ok(false);
     }
     Ok(true)
-}
-
-async fn gloas_override_parent_block_hash(
-    cls: &[Client],
-    event: &mut PayloadAttributesEvent,
-    payload_id: InternalPayloadId,
-) {
-    let parent_block_root = event.data.parent_block_root;
-    if parent_block_root.is_zero() {
-        return;
-    }
-    let parent_root_id = format!("0x{}", hex::encode(parent_block_root.as_slice()));
-    for cl in cls {
-        match cl.get_beacon_block_bid(&parent_root_id).await {
-            Ok(Some(signed_bid)) => {
-                let correct = signed_bid.message.block_hash;
-                if correct != event.data.parent_block_hash {
-                    info!(
-                        payload_id,
-                        sse_parent_hash = ?event.data.parent_block_hash,
-                        correct_parent_hash = ?correct,
-                        ?parent_block_root,
-                        "Overriding stale parent_block_hash from Prysm SSE with parent beacon block's bid.block_hash (Gloas/EPBS Fix B)"
-                    );
-                    event.data.parent_block_hash = correct;
-                }
-                return;
-            }
-            Ok(None) => {
-                debug!(
-                    payload_id,
-                    ?parent_block_root,
-                    "Parent beacon block not found via CL, leaving parent_block_hash as-is"
-                );
-            }
-            Err(err) => {
-                debug!(
-                    payload_id,
-                    ?err,
-                    "Failed to fetch parent beacon block; trying next CL"
-                );
-            }
-        }
-    }
 }
 
 fn report_slot_withdrawals_to_fee_recipients(data: &MevBoostSlotData) {

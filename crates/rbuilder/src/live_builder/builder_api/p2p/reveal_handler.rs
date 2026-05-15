@@ -2,11 +2,12 @@ use alloy_primitives::{BlockHash, B256};
 use parking_lot::RwLock;
 use rbuilder_primitives::epbs::{CachedPayloadData, SignedExecutionPayloadBid};
 use std::{collections::HashMap, sync::Arc};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{beacon_api_client::Client, mev_boost::EpbsBidSigner};
 
 /// Handles payload revelation after bid inclusion in a beacon block.
+#[derive(Clone)]
 pub struct RevealHandler {
     /// Beacon api client for constructing and submitting envelopes.
     beacon_client: Client,
@@ -37,6 +38,7 @@ impl RevealHandler {
         &self,
         slot: u64,
         beacon_block_root: B256,
+        parent_beacon_block_root: B256,
         included_bid: &SignedExecutionPayloadBid,
     ) -> eyre::Result<()> {
         let block_hash = included_bid.message.block_hash;
@@ -45,6 +47,7 @@ impl RevealHandler {
             slot,
             ?block_hash,
             ?beacon_block_root,
+            ?parent_beacon_block_root,
             builder_index = included_bid.message.builder_index,
             "Our bid was included, starting payload reveal"
         );
@@ -69,53 +72,8 @@ impl RevealHandler {
                 )
             })?;
 
-        // 2. construct envelope via beacon node
-        // retrying up to 3 times before giving up.
-        //(TODO: check if the PR gets merged which computes state_root).
-        let envelope = {
-            let mut result = None;
-            for attempt in 1..=3 {
-                match self
-                    .beacon_client
-                    .construct_execution_payload_envelope(
-                        beacon_block_root,
-                        &cached.payload,
-                        &cached.execution_requests,
-                    )
-                    .await
-                {
-                    Ok(envelope) => {
-                        info!(
-                            slot,
-                            ?block_hash,
-                            state_root = ?envelope.state_root,
-                            "Beacon node constructed envelope with state_root"
-                        );
-                        result = Some(envelope);
-                        break;
-                    }
-                    Err(e) => {
-                        warn!(
-                            slot,
-                            ?block_hash,
-                            attempt,
-                            error = %e,
-                            "Failed to construct envelope via beacon node, retrying..."
-                        );
-                        if attempt < 3 {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        }
-                    }
-                }
-            }
-            result.ok_or_else(|| {
-                eyre::eyre!(
-                    "Failed to construct envelope after 3 attempts for slot {}. \
-                     Cannot reveal without valid state_root.",
-                    slot,
-                )
-            })?
-        };
+        // 2. build envelope locally
+        let envelope = cached.build_envelope(beacon_block_root, parent_beacon_block_root);
 
         // 3. sign the envelope
         let signed_envelope = {
@@ -128,8 +86,6 @@ impl RevealHandler {
 
         // Materialize raw blob bytes + cell proofs from the cached sidecars.
         // This is the only place we actually pay the per-blob heap copy cost
-        // (it happens once per won slot, not once per generated bid).
-        // TODO: rethink this plis, am not too confident about this
         let blobs = cached.blobs();
         let cell_proofs = cached.cell_proofs();
 

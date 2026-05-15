@@ -70,46 +70,50 @@ codegen-units = 1
 incremental = false
 
 [workspace.dependencies]
-# reth crates — faheelsattar/reth epbs-devnet-1 branch
-reth = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-cli-util = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-db = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-db-common = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-errors = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-payload-builder = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-node-api = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-node-ethereum = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-trie = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-trie-parallel = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-node-core = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-ethereum-primitives = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-primitives-traits = { version = "0.1.0" }
-reth-provider = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83", features = [
+# reth crates — paradigmxyz/reth bal-devnet-6 (glamsterdam-devnet-3): adds
+# engine_getPayloadV6, BlockAccessList (EIP-7928), and ExecutionPayloadGloas.
+reth = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-cli-util = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-db-common = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-errors = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-trie = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-node-core = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-primitives-traits = { version = "0.3.0" }
+reth-provider = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7", features = [
     "test-utils",
 ] }
-reth-chainspec = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-evm = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-evm-ethereum = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-execution-errors = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-trie-db = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-transaction-pool = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
-reth-tasks = { git = "https://github.com/faheelsattar/reth", rev = "a80437fb32d50d46d995136f7249362ca2b74b83" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-evm = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
+reth-tasks = { git = "https://github.com/paradigmxyz/reth", rev = "8ebfaff134a973ea7b89f619a0562882e97b93c7" }
 
-# compatible with local reth dependencies
-revm = { version = "36.0.0", features = [
+# compatible with local reth dependencies (bumped for bal-devnet-6)
+revm = { version = "=38.0.0", features = [
     "std",
     "secp256k1",
     "optional_balance_check",
 ], default-features = false }
-revm-inspectors = { version = "0.36.0", default-features = false }
+revm-inspectors = { version = "=0.39.0", default-features = false }
 
-ethereum_ssz_derive = "0.9.0"
-ethereum_ssz = "0.9.0"
+ethereum_ssz_derive = "0.10.0"
+ethereum_ssz = "0.10.0"
+tree_hash = "0.12.0"
 
-# Lighthouse consensus types for Gloas/EPBS SSZ types
-lighthouse_types = { git = "https://github.com/sigp/lighthouse", rev = "176cce585c1ba979a6210ed79b6b6528596cdb8c", package = "types", default-features = false, features = ["legacy-arith"] }
-lighthouse_bls = { git = "https://github.com/sigp/lighthouse", rev = "176cce585c1ba979a6210ed79b6b6528596cdb8c", package = "bls" }
-lighthouse_ssz_types = { version = "0.14.0", package = "ssz_types" }
+# Lighthouse consensus types for Gloas/EPBS SSZ types — glamsterdam-devnet-3
+# branch (has `execution_requests_root` on ExecutionPayloadBid and the new
+# Gloas envelope schema with `parent_beacon_block_root`, no `slot`/`state_root`).
+lighthouse_types = { git = "https://github.com/sigp/lighthouse", rev = "27cfa18c17e148fb75827d0ea3c9a2c69db0aae0", package = "types", default-features = false, features = ["saturating-arith"] }
+lighthouse_bls = { git = "https://github.com/sigp/lighthouse", rev = "27cfa18c17e148fb75827d0ea3c9a2c69db0aae0", package = "bls" }
+lighthouse_ssz_types = { version = "0.14.1", package = "ssz_types", features = ["context_deserialize", "runtime_types"] }
 
 alloy-primitives = { version = "1.5.6", default-features = false, features = [
     "getrandom",
@@ -117,20 +121,20 @@ alloy-primitives = { version = "1.5.6", default-features = false, features = [
 alloy-rlp = "0.3.13"
 alloy-chains = "0.2.33"
 alloy-trie = { version = "0.9.4", default-features = false }
-alloy-evm = { version = "0.30.0", default-features = false }
-alloy-provider = { version = "1.8.2", features = ["ipc", "pubsub", "ws"] }
-alloy-eips = { version = "1.8.2" }
-alloy-rpc-types = { version = "1.8.2" }
-alloy-json-rpc = { version = "1.8.2" }
-alloy-network = { version = "1.8.2" }
-alloy-network-primitives = { version = "1.8.2" }
-alloy-node-bindings = { version = "1.8.2" }
-alloy-consensus = { version = "1.8.2", features = ["kzg"] }
-alloy-rpc-types-beacon = { version = "1.8.2", features = ["ssz"] }
-alloy-rpc-types-engine = { version = "1.8.2", features = ["ssz"] }
-alloy-rpc-types-eth = { version = "1.8.2" }
-alloy-signer = { version = "1.8.2" }
-alloy-signer-local = { version = "1.8.2" }
+alloy-evm = { version = "0.34.0", default-features = false }
+alloy-provider = { version = "2.0.1", features = ["ipc", "pubsub", "ws"] }
+alloy-eips = { version = "2.0.1" }
+alloy-rpc-types = { version = "2.0.1" }
+alloy-json-rpc = { version = "2.0.1" }
+alloy-network = { version = "2.0.1" }
+alloy-network-primitives = { version = "2.0.1" }
+alloy-node-bindings = { version = "2.0.1" }
+alloy-consensus = { version = "2.0.1", features = ["kzg"] }
+alloy-rpc-types-beacon = { version = "2.0.1", features = ["ssz"] }
+alloy-rpc-types-engine = { version = "2.0.1", features = ["ssz"] }
+alloy-rpc-types-eth = { version = "2.0.1" }
+alloy-signer = { version = "2.0.1" }
+alloy-signer-local = { version = "2.0.1" }
 
 # Version required by ethereum-consensus beacon-api-client
 mev-share-sse = { git = "https://github.com/paradigmxyz/mev-share-rs", rev = "9eb2b0138ab3202b9eb3af4b19c7b3bf40b0faa8", default-features = false }
@@ -191,3 +195,28 @@ metrics_macros = { path = "crates/rbuilder/src/telemetry/metrics_macros" }
 [workspace.metadata.cargo-shear]
 # cargo-shear invalidly marks these as unused.
 ignored = ["prost", "prost-types"]
+
+# Mirror upstream reth's patch section so revm/alloy-evm/reth-codecs resolve to
+# the same revs reth itself is built against. If this gets out of sync with
+# reth's Cargo.toml, the build fails with conflicting type definitions for the
+# `revm` types reth's API surface uses.
+[patch.crates-io]
+revm = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-bytecode = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-context = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-context-interface = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-database = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-database-interface = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-handler = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-inspector = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-interpreter = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-precompile = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-primitives = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-state = { git = "https://github.com/bluealloy/revm", rev = "7ac2a4a922d70e73f7b45baa16ed996f479d6a41" }
+revm-inspectors = { git = "https://github.com/paradigmxyz/revm-inspectors", rev = "1c2e997a33baa698decdaaba5f14326fc40dfee6" }
+alloy-evm = { git = "https://github.com/alloy-rs/evm", rev = "13c9068fe8d0b112f2836783f9702eb3d3b7871f" }
+reth-codecs = { git = "https://github.com/paradigmxyz/reth-core", rev = "afa5162668db00749b14bf30d06d3bed5c71aa4c" }
+reth-codecs-derive = { git = "https://github.com/paradigmxyz/reth-core", rev = "afa5162668db00749b14bf30d06d3bed5c71aa4c" }
+reth-primitives-traits = { git = "https://github.com/paradigmxyz/reth-core", rev = "afa5162668db00749b14bf30d06d3bed5c71aa4c" }
+reth-rpc-traits = { git = "https://github.com/paradigmxyz/reth-core", rev = "afa5162668db00749b14bf30d06d3bed5c71aa4c" }
+reth-zstd-compressors = { git = "https://github.com/paradigmxyz/reth-core", rev = "afa5162668db00749b14bf30d06d3bed5c71aa4c" }

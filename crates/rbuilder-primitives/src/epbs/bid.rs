@@ -45,6 +45,9 @@ pub struct ExecutionPayloadBid {
     /// blob commitments for the payload.
     /// per spec: List[KZGCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK]
     pub blob_kzg_commitments: Vec<Bytes>,
+    /// Hash-tree-root of the typed `ExecutionRequests` (deposits, withdrawals,
+    /// consolidations) committed by this bid.
+    pub execution_requests_root: B256,
 }
 
 impl ExecutionPayloadBid {

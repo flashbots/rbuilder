@@ -336,6 +336,7 @@ fn spawn_mev_boost_slot_data_generator(
         Default::default(),
         Arc::new(NullBlockListProvider::default()),
         cancellation_token.clone(),
+        None,
     );
     let (_, slot_data_generator) = slot_data_generator.spawn();
 

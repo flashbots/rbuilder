@@ -42,7 +42,7 @@ use crate::{
             relay_submit::OptimisticV3Config,
         },
         cli::LiveBuilderConfig,
-        payload_events::MevBoostSlotDataGenerator,
+        payload_events::{MevBoostSlotDataGenerator, ParentNumberResolver},
     },
     mev_boost::{
         bloxroute_grpc,
@@ -477,14 +477,15 @@ impl L1Config {
                 attempt += 1;
 
                 for client in &clients {
-                    let builder_index =
-                        match client.get_builder_index_by_pubkey(&pubkey_bytes).await {
-                            Ok(index) => {
+                    let (builder_index, deposit_epoch) =
+                        match client.get_builder_entry_by_pubkey(&pubkey_bytes).await {
+                            Ok(entry) => {
                                 info!(
-                                    builder_index = index,
+                                    builder_index = entry.0,
+                                    deposit_epoch = entry.1,
                                     "Found builder in beacon state builders registry"
                                 );
-                                index
+                                entry
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -498,6 +499,54 @@ impl L1Config {
                                 continue;
                             }
                         };
+
+                    // a builder is `is_active_builder` only once its `deposit_epoch` 
+                    // has been finalized. Publishing bids before that fails
+                    match client.get_finalized_epoch().await {
+                        Ok(finalized_epoch) if finalized_epoch >= deposit_epoch => {
+                            info!(
+                                builder_index,
+                                deposit_epoch, finalized_epoch, "Builder is finalized-active"
+                            );
+                        }
+                        Ok(finalized_epoch) => {
+                            // builder is in the registry but its deposit_epoch
+                            // hasnt finalized yet. Keep waiting.s.
+                            if attempt % 10 == 1 {
+                                info!(
+                                    attempt,
+                                    builder_index,
+                                    deposit_epoch,
+                                    finalized_epoch,
+                                    "Builder is registered but not yet active (waiting for deposit_epoch to finalize)"
+                                );
+                            } else {
+                                tracing::debug!(
+                                    attempt,
+                                    builder_index,
+                                    deposit_epoch,
+                                    finalized_epoch,
+                                    "Builder pending finalization"
+                                );
+                            }
+                            last_error = Some(eyre::eyre!(
+                                "Builder not yet active: deposit_epoch={} > finalized_epoch={}",
+                                deposit_epoch,
+                                finalized_epoch
+                            ));
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                attempt,
+                                beacon_endpoint = %client.endpoint(),
+                                error = ?e,
+                                "Failed to fetch finalized epoch"
+                            );
+                            last_error = Some(e);
+                            continue;
+                        }
+                    }
 
                     // Get signing domain (from config or beacon chain)
                     let domain = if let Some(domain) = signing_domain {
@@ -591,39 +640,73 @@ impl L1Config {
 
             info!("EPBS P2P builder service is enabled");
 
-            let genesis_time = if let Some(client) = p2p_beacon_client.as_ref() {
-                let mut result: Option<u64> = None;
-                for attempt in 1..=10 {
-                    match client.get_genesis().await {
-                        Ok(g) => {
-                            result = Some(g.genesis_time);
-                            break;
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                attempt,
-                                error = ?e,
-                                "Failed to fetch genesis_time, retrying..."
-                            );
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+            let (genesis_time, seconds_per_slot) = if let Some(client) = p2p_beacon_client.as_ref()
+            {
+                let mut gt: Option<u64> = None;
+                let mut sps: Option<u64> = None;
+                let mut attempt: u32 = 0;
+                while gt.is_none() || sps.is_none() {
+                    attempt += 1;
+                    if gt.is_none() {
+                        match client.get_genesis().await {
+                            Ok(g) => gt = Some(g.genesis_time),
+                            Err(e) => {
+                                if attempt % 5 == 1 {
+                                    tracing::warn!(
+                                        attempt,
+                                        error = ?e,
+                                        "Failed to fetch genesis_time, retrying..."
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        attempt,
+                                        error = ?e,
+                                        "Failed to fetch genesis_time"
+                                    );
+                                }
+                            }
                         }
                     }
+                    if sps.is_none() {
+                        match client.get_seconds_per_slot().await {
+                            Ok(s) => sps = Some(s),
+                            Err(e) => {
+                                if attempt % 5 == 1 {
+                                    tracing::warn!(
+                                        attempt,
+                                        error = ?e,
+                                        "Failed to fetch SECONDS_PER_SLOT, retrying..."
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        attempt,
+                                        error = ?e,
+                                        "Failed to fetch SECONDS_PER_SLOT"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    if gt.is_some() && sps.is_some() {
+                        break;
+                    }
+                    let backoff_secs = std::cmp::min(10, 1u64 << attempt.saturating_sub(1).min(4));
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                 }
-                if let Some(t) = result {
-                    info!(
-                        genesis_time = t,
-                        "Fetched genesis_time for EPBS P2P scheduler"
-                    );
-                    t
-                } else {
-                    tracing::warn!(
-                        "Failed to fetch genesis_time after 10 attempts; \
-                         falling back to 0 (P2P scheduler will use stale slot numbers)"
-                    );
-                    0
-                }
+                // TODO  clean/fix the defaults
+                let gt = gt.unwrap_or(0);
+                let sps = sps.unwrap_or(12);
+                info!(
+                    genesis_time = gt,
+                    seconds_per_slot = sps,
+                    attempts = attempt,
+                    "Fetched chain timing for EPBS P2P scheduler"
+                );
+                (gt, sps)
             } else {
-                0
+                // TODO  clean/fix the defaults
+                (0, 12)
             };
 
             let p2p_config = EpbsP2PConfig {
@@ -634,7 +717,7 @@ impl L1Config {
                 bid_value_increment_gwei: self.epbs_p2p_bid_value_increment_gwei,
                 bid_value_subsidy_gwei: self.epbs_p2p_bid_value_subsidy_gwei,
                 genesis_time,
-                seconds_per_slot: 12,
+                seconds_per_slot,
             };
 
             let beacon_client = p2p_beacon_client
@@ -1573,11 +1656,22 @@ pub async fn create_builder_from_sink<P>(
     cancellation_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     let blocklist_provider = base_config
         .blocklist_provider(cancellation_token.clone())
         .await?;
+
+    // TODO(prysm-buildoor-apis): resolver for the parent_block_number=0
+    // workaround in MevBoostSlotDataGenerator. See ParentNumberResolver doc.
+    let provider_for_resolver = provider.clone();
+    let parent_number_resolver: ParentNumberResolver = std::sync::Arc::new(move |hash| {
+        provider_for_resolver
+            .header(&hash)
+            .ok()
+            .flatten()
+            .map(|h| h.number)
+    });
 
     let payload_event = MevBoostSlotDataGenerator::new(
         l1_config.beacon_clients()?,
@@ -1586,6 +1680,7 @@ where
         adjustment_fee_payers,
         blocklist_provider.clone(),
         cancellation_token.clone(),
+        Some(parent_number_resolver),
     );
     base_config
         .create_builder_with_provider_factory(

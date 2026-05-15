@@ -139,7 +139,10 @@ where
         + Clone
         + 'static,
 {
-    let overlay = OverlayStateProviderFactory::new(provider, Default::default());
+    let overlay_builder = reth_provider::providers::OverlayBuilder::<
+        reth_ethereum_primitives::EthPrimitives,
+    >::new(B256::ZERO, reth_trie_db::ChangesetCache::new());
+    let overlay = OverlayStateProviderFactory::new(provider, overlay_builder);
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let parallel_root_calculator = ParallelStateRoot::new(
         overlay,

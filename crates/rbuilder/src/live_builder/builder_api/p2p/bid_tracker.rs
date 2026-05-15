@@ -141,6 +141,7 @@ mod tests {
                 value,
                 execution_payment: 0,
                 blob_kzg_commitments: vec![],
+                execution_requests_root: B256::ZERO,
             },
             signature: BlsSignature::default(),
         }

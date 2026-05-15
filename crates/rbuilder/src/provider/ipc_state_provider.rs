@@ -22,8 +22,8 @@ use reth_provider::{
     StateProofProvider, StateProvider, StateProviderBox, StateRootProvider, StorageRootProvider,
 };
 use reth_trie::{
-    updates::TrieUpdates, AccountProof, HashedPostState, HashedStorage, MultiProof,
-    MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
+    updates::TrieUpdates, AccountProof, ExecutionWitnessMode, HashedPostState, HashedStorage,
+    MultiProof, MultiProofTargets, StorageMultiProof, StorageProof, TrieInput,
 };
 use revm::{
     database::{BundleAccount, BundleState},
@@ -419,7 +419,12 @@ impl StateProofProvider for IpcStateProvider {
         unimplemented!()
     }
 
-    fn witness(&self, _input: TrieInput, _target: HashedPostState) -> ProviderResult<Vec<Bytes>> {
+    fn witness(
+        &self,
+        _input: TrieInput,
+        _target: HashedPostState,
+        _mode: ExecutionWitnessMode,
+    ) -> ProviderResult<Vec<Bytes>> {
         unimplemented!()
     }
 }

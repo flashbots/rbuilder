@@ -169,7 +169,7 @@ impl EpbsP2PService {
                         // worth of entries, long enough to still reveal a
                         // bid that won a few slots ago, short enough to cap
                         // memory at PAYLOAD_CACHE_RETENTION_SLOTS × per-slot payload size.
-                        const PAYLOAD_CACHE_RETENTION_SLOTS: u64 = 64;
+                        const PAYLOAD_CACHE_RETENTION_SLOTS: u64 = 8;
                         let oldest_to_keep = current_slot
                             .saturating_sub(PAYLOAD_CACHE_RETENTION_SLOTS);
                         self.bid_provider.cleanup_older_than(oldest_to_keep);
@@ -270,7 +270,9 @@ impl EpbsP2PService {
             .get_beacon_block_bid(&block_root_hex)
             .await
         {
-            Ok(Some(included_bid)) => {
+            Ok(Some(info)) => {
+                let included_bid = &info.bid;
+                let parent_beacon_block_root = info.parent_root;
                 // trigger the reveal whenever the included bid is ours. We may
                 // have submitted several bids per slot with different block hashes
                 // the payload cache is keyed by block hash, so the RevealHandler
@@ -290,15 +292,25 @@ impl EpbsP2PService {
                         slot,
                         ?block_root,
                         included_block_hash = ?included_bid.message.block_hash,
+                        ?parent_beacon_block_root,
                         "Our bid was included in the beacon block, triggering reveal"
                     );
 
-                    if let Err(e) = reveal_handler
-                        .on_bid_included(slot, block_root, &included_bid)
-                        .await
-                    {
-                        error!(slot, error = %e, "Failed to reveal payload");
-                    }
+                    let reveal_handler = reveal_handler.clone();
+                    let included_bid = included_bid.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = reveal_handler
+                            .on_bid_included(
+                                slot,
+                                block_root,
+                                parent_beacon_block_root,
+                                &included_bid,
+                            )
+                            .await
+                        {
+                            error!(slot, error = %e, "Failed to reveal payload");
+                        }
+                    });
                 } else {
                     debug!(
                         slot,
@@ -566,8 +578,8 @@ impl EpbsP2PService {
                             _ = cancel.cancelled() => return,
                             event = stream.next() => {
                                 match event {
-                                    Some(Ok(signed_prefs)) => {
-                                        cache.insert(signed_prefs.message);
+                                    Some(Ok(prefs_event)) => {
+                                        cache.insert(prefs_event.data.message);
                                     }
                                     Some(Err(e)) => {
                                         warn!(error = %e, "Error in proposer preferences SSE stream");
