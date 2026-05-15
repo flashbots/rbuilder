@@ -500,7 +500,7 @@ impl L1Config {
                             }
                         };
 
-                    // a builder is `is_active_builder` only once its `deposit_epoch` 
+                    // a builder is `is_active_builder` only once its `deposit_epoch`
                     // has been finalized. Publishing bids before that fails
                     match client.get_finalized_epoch().await {
                         Ok(finalized_epoch) if finalized_epoch >= deposit_epoch => {
@@ -639,7 +639,6 @@ impl L1Config {
             use super::builder_api::p2p::EpbsP2PConfig;
 
             info!("EPBS P2P builder service is enabled");
-
 
             let (genesis_time, seconds_per_slot) = if let Some(client) = p2p_beacon_client.as_ref()
             {

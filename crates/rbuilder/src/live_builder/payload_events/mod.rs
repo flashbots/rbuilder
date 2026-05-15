@@ -37,7 +37,7 @@ const NEW_PAYLOAD_RECV_TIMEOUT: Duration = SLOT_DURATION.saturating_mul(2);
 // `bharath-123-buildoor-apis` branch is patched to populate the SSE
 // `payload_attributes` event's `parent_block_number` field correctly. Today
 // it always reports "0" post-Gloas, which breaks rbuilder's state-root
-// computation 
+// computation
 pub type ParentNumberResolver = Arc<dyn Fn(B256) -> Option<u64> + Send + Sync>;
 
 /// If connection to the consensus client if broken we wait this time.

@@ -141,7 +141,6 @@ fn to_lh_envelope(
     let payload = to_lh_execution_payload(envelope)?;
     let execution_requests = to_lh_execution_requests(&envelope.execution_requests)?;
 
-
     Ok(LhExecutionPayloadEnvelope {
         payload,
         execution_requests,

@@ -1159,7 +1159,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let step_start = Instant::now();
 
         // extract the accumulated EIP-7928 BAL built up across per tx
-        // revm state commits. `None` pre ammsterdam, post ammsterdam this carries 
+        // revm state commits. `None` pre ammsterdam, post ammsterdam this carries
         // the rlp encoded BAL bytes that get both hashed into the header ans shipped to the relay in the payload.
         // Take the canonical `alloy_eips::eip7928::BlockAccessList` (=
         // `Vec<AccountChanges>`) accumulated by revm during execution. We hash
