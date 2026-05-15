@@ -4,10 +4,9 @@
 //! by connecting to the existing block building infrastructure.
 
 use alloy_primitives::{BlockHash, B256, U256};
-use alloy_rpc_types_engine::ExecutionPayloadV3;
 use parking_lot::RwLock;
 use rbuilder_primitives::epbs::{
-    CachedPayloadData, ExecutionPayloadBid, ExecutionRequests, GetBidParams,
+    BeaconWithdrawal, CachedPayloadData, ExecutionPayloadBid, ExecutionRequests, GetBidParams,
     SignedExecutionPayloadBid,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -19,7 +18,6 @@ use crate::{
     mev_boost::EpbsBidSigner,
 };
 use alloy_primitives::Bytes;
-use alloy_rpc_types_engine::{ExecutionPayloadV1, ExecutionPayloadV2};
 
 use super::EpbsBidProvider;
 
@@ -314,6 +312,23 @@ impl LiveEpbsBidProvider {
             cached.parent_block_root
         };
 
+        // Compute the typed execution_requests root the bid commits to.
+        // cl verifies at envelope reveal that the revealed requests hash
+        // to this same root (gloas/p2p-interface.md)
+        let exec_reqs = Self::convert_execution_requests(&block.execution_requests);
+        let execution_requests_root = crate::mev_boost::sign_epbs::execution_requests_root(
+            &exec_reqs,
+        )
+        .unwrap_or_else(|err| {
+            tracing::warn!(
+                slot = params.slot,
+                ?err,
+                "Failed to compute execution_requests_root; bidding with zero root \
+                 (envelope reveal will fail cls request-root check)"
+            );
+            B256::ZERO
+        });
+
         ExecutionPayloadBid {
             parent_block_hash,
             parent_block_root,
@@ -326,6 +341,7 @@ impl LiveEpbsBidProvider {
             value: value_gwei,
             execution_payment: 0, // In protocol payment
             blob_kzg_commitments,
+            execution_requests_root,
         }
     }
 
@@ -381,8 +397,8 @@ impl LiveEpbsBidProvider {
         let slot = signed_bid.message.slot;
         let block_hash = signed_bid.message.block_hash;
 
-        // Convert block to ExecutionPayloadV3
-        let payload = self.block_to_execution_payload(block);
+        // Convert block to ExecutionPayloadGloas
+        let payload = self.block_to_execution_payload(block, slot);
 
         // Extract blob commitments
         let blob_kzg_commitments = self.extract_blob_commitments(block);
@@ -411,13 +427,14 @@ impl LiveEpbsBidProvider {
         self.payload_cache.write().insert(block_hash, cached);
     }
 
-    /// Convert a Block to ExecutionPayloadV3.
-    ///
-    /// TODO: Use proper conversion from rbuilder-primitives when available.
-    fn block_to_execution_payload(&self, block: &Block) -> ExecutionPayloadV3 {
+    /// Convert a Block to ExecutionPayloadGloas (flat snake_case wire shape).
+    fn block_to_execution_payload(
+        &self,
+        block: &Block,
+        slot: u64,
+    ) -> rbuilder_primitives::epbs::ExecutionPayloadGloas {
         let sealed = &block.sealed_block;
 
-        // Extract transactions as raw bytes
         let transactions: Vec<Bytes> = sealed
             .body()
             .transactions
@@ -429,36 +446,42 @@ impl LiveEpbsBidProvider {
             })
             .collect();
 
-        // Extract withdrawals
-        let withdrawals = sealed
+        let withdrawals: Vec<BeaconWithdrawal> = sealed
             .body()
             .withdrawals
             .as_ref()
-            .map(|w| w.to_vec())
+            .map(|w| {
+                w.iter()
+                    .map(|wd| BeaconWithdrawal {
+                        index: wd.index,
+                        validator_index: wd.validator_index,
+                        address: wd.address,
+                        amount: wd.amount,
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
-        ExecutionPayloadV3 {
-            payload_inner: ExecutionPayloadV2 {
-                payload_inner: ExecutionPayloadV1 {
-                    parent_hash: sealed.parent_hash,
-                    fee_recipient: sealed.beneficiary,
-                    state_root: sealed.state_root,
-                    receipts_root: sealed.receipts_root,
-                    logs_bloom: sealed.logs_bloom,
-                    prev_randao: sealed.mix_hash,
-                    block_number: sealed.number,
-                    gas_limit: sealed.gas_limit,
-                    gas_used: sealed.gas_used,
-                    timestamp: sealed.timestamp,
-                    extra_data: sealed.extra_data.clone(),
-                    base_fee_per_gas: U256::from(sealed.base_fee_per_gas.unwrap_or_default()),
-                    block_hash: sealed.hash(),
-                    transactions,
-                },
-                withdrawals,
-            },
+        rbuilder_primitives::epbs::ExecutionPayloadGloas {
+            parent_hash: sealed.parent_hash,
+            fee_recipient: sealed.beneficiary,
+            state_root: sealed.state_root,
+            receipts_root: sealed.receipts_root,
+            logs_bloom: sealed.logs_bloom,
+            prev_randao: sealed.mix_hash,
+            block_number: sealed.number,
+            gas_limit: sealed.gas_limit,
+            gas_used: sealed.gas_used,
+            timestamp: sealed.timestamp,
+            extra_data: sealed.extra_data.clone(),
+            base_fee_per_gas: U256::from(sealed.base_fee_per_gas.unwrap_or_default()),
+            block_hash: sealed.hash(),
+            transactions,
+            withdrawals,
             blob_gas_used: sealed.blob_gas_used.unwrap_or_default(),
             excess_blob_gas: sealed.excess_blob_gas.unwrap_or_default(),
+            block_access_list: block.block_access_list.clone().unwrap_or_default(),
+            slot_number: slot,
         }
     }
 

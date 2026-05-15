@@ -5,26 +5,68 @@
 //! See: https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/builder.md
 
 use alloy_eips::eip7594::BlobTransactionSidecarVariant;
-use alloy_primitives::{Bytes, B256};
+use alloy_primitives::{Address, Bloom, Bytes, B256, U256};
 use alloy_rpc_types_beacon::BlsSignature;
-use alloy_rpc_types_engine::ExecutionPayloadV3;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
+
+// TODO: check if it can imported from some crate
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPayloadGloas {
+    pub parent_hash: B256,
+    pub fee_recipient: Address,
+    pub state_root: B256,
+    pub receipts_root: B256,
+    pub logs_bloom: Bloom,
+    pub prev_randao: B256,
+    #[serde_as(as = "DisplayFromStr")]
+    pub block_number: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub gas_limit: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub gas_used: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub timestamp: u64,
+    pub extra_data: Bytes,
+    #[serde_as(as = "DisplayFromStr")]
+    pub base_fee_per_gas: U256,
+    pub block_hash: B256,
+    pub transactions: Vec<Bytes>,
+    pub withdrawals: Vec<BeaconWithdrawal>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub blob_gas_used: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub excess_blob_gas: u64,
+    pub block_access_list: Bytes,
+    #[serde_as(as = "DisplayFromStr")]
+    pub slot_number: u64,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeaconWithdrawal {
+    #[serde_as(as = "DisplayFromStr")]
+    pub index: u64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub validator_index: u64,
+    pub address: Address,
+    #[serde_as(as = "DisplayFromStr")]
+    pub amount: u64,
+}
 
 /// ExecutionPayloadEnvelope contains the full execution payload and associated data.
 ///
 /// This is revealed by the builder after their SignedExecutionPayloadBid is included
 /// in a beacon block. The envelope is broadcast on the `execution_payload` P2P topic.
 ///
-/// From consensus-specs/specs/gloas/beacon-chain.md:
 
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPayloadEnvelope {
-    /// The full execution payload.
-    /// TODO: This should be the Gloas-specific ExecutionPayload when available in Alloy.
-    pub payload: ExecutionPayloadV3,
+    /// The full Gloas execution payload (V3 fields + block_access_list + slot_number).
+    pub payload: ExecutionPayloadGloas,
     /// Execution requests (deposits, withdrawals, consolidations).
     /// TODO: Use proper ExecutionRequests type from Alloy when available.
     pub execution_requests: ExecutionRequests,
@@ -33,14 +75,9 @@ pub struct ExecutionPayloadEnvelope {
     pub builder_index: u64,
     /// Hash tree root of the beacon block that included this builder's bid.
     pub beacon_block_root: B256,
-    /// Slot of the beacon block.
-    #[serde_as(as = "DisplayFromStr")]
-    pub slot: u64,
-    /// Blob KZG commitments for the payload.
-    #[serde(default)]
-    pub blob_kzg_commitments: Vec<Bytes>,
-    /// State root after applying the execution payload.
-    pub state_root: B256,
+    /// Hash tree root of the parent of the beacon block that includes this
+    /// envelope's bid.
+    pub parent_beacon_block_root: B256,
 }
 
 /// Placeholder for ExecutionRequests until available in Alloy.
@@ -83,7 +120,7 @@ pub struct CachedPayloadData {
     /// The signed bid that was broadcast/returned.
     pub bid: super::SignedExecutionPayloadBid,
     /// The full execution payload (to be revealed later).
-    pub payload: ExecutionPayloadV3,
+    pub payload: ExecutionPayloadGloas,
     /// Execution requests associated with the payload.
     pub execution_requests: ExecutionRequests,
     /// Blob KZG commitments.
@@ -101,7 +138,7 @@ impl CachedPayloadData {
     /// Creates a new cached payload entry.
     pub fn new(
         bid: super::SignedExecutionPayloadBid,
-        payload: ExecutionPayloadV3,
+        payload: ExecutionPayloadGloas,
         execution_requests: ExecutionRequests,
         blob_kzg_commitments: Vec<Bytes>,
         sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
@@ -116,20 +153,18 @@ impl CachedPayloadData {
         }
     }
 
-    /// Build the envelope from cached data and the beacon block info.
+    /// Build the envelope from cached data and the beacon block roots.
     pub fn build_envelope(
         &self,
         beacon_block_root: B256,
-        state_root: B256,
+        parent_beacon_block_root: B256,
     ) -> ExecutionPayloadEnvelope {
         ExecutionPayloadEnvelope {
             payload: self.payload.clone(),
             execution_requests: self.execution_requests.clone(),
             builder_index: self.bid.message.builder_index,
             beacon_block_root,
-            slot: self.bid.message.slot,
-            blob_kzg_commitments: self.blob_kzg_commitments.clone(),
-            state_root,
+            parent_beacon_block_root,
         }
     }
 
