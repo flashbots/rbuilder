@@ -96,7 +96,7 @@ pub fn insert_test_payout_tx(
 
     let res = evm.transact(&tx)?;
     match res.result {
-        ExecutionResult::Success { gas, .. } => Ok(Some(gas.spent())),
+        ExecutionResult::Success { gas, .. } => Ok(Some(gas.total_gas_spent())),
         _ => Ok(None),
     }
 }

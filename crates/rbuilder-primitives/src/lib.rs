@@ -1138,9 +1138,23 @@ fn can_execute_with_block_base_fee<Transaction: AsRef<TransactionSigned>>(
 }
 
 /// Models consumed/reserved space on a block to be able to insert payout tx when finished filling the block.
+///
+/// EIP-8037 in glamsterdam the block has two independent gas budgets
+/// regular execution gas and state-diff gas. The block-level total written
+/// into `header.gas_used` is `max(regular, state)` — see
+/// alloy-evm/crates/evm/src/eth/block.rs::EthBlockExecutor::finish. We track
+/// both here so the header can be sealed correctly while receipts continue
+/// to use cumulative `tx_gas_used = regular + state - refunds` (carried in
+/// `gas` for backwards compatibility with everything that already reads it).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct BlockSpace {
     pub gas: u64,
+    /// EIP-8037 regular execution gas used. Sum per-tx of
+    /// `block_regular_gas_used()`. Bounded by the block gas limit.
+    pub regular_gas: u64,
+    /// EIP-8037 state-diff gas used. Sum per-tx of `block_state_gas_used()`.
+    /// Bounded independently by the block gas limit.
+    pub state_gas: u64,
     /// EIP-7934 limits the size of the final rlp block.
     /// Estimation of the sum of the rlp txs sizes.
     pub rlp_length: usize,
@@ -1151,6 +1165,26 @@ impl BlockSpace {
     pub fn new(gas: u64, rlp_length: usize, blob_gas: u64) -> Self {
         Self {
             gas,
+            regular_gas: 0,
+            state_gas: 0,
+            rlp_length,
+            blob_gas,
+        }
+    }
+
+    /// Construct with explicit EIP-8037 regular/state gas split. `gas` should
+    /// be `tx_gas_used` (the receipt-cumulative value).
+    pub fn new_split(
+        gas: u64,
+        regular_gas: u64,
+        state_gas: u64,
+        rlp_length: usize,
+        blob_gas: u64,
+    ) -> Self {
+        Self {
+            gas,
+            regular_gas,
+            state_gas,
             rlp_length,
             blob_gas,
         }
@@ -1158,6 +1192,8 @@ impl BlockSpace {
 
     pub const ZERO: Self = Self {
         gas: 0,
+        regular_gas: 0,
+        state_gas: 0,
         rlp_length: 0,
         blob_gas: 0,
     };
@@ -1166,6 +1202,8 @@ impl BlockSpace {
 impl std::ops::AddAssign for BlockSpace {
     fn add_assign(&mut self, other: Self) {
         self.gas += other.gas;
+        self.regular_gas += other.regular_gas;
+        self.state_gas += other.state_gas;
         self.rlp_length += other.rlp_length;
         self.blob_gas += other.blob_gas;
     }
@@ -1177,6 +1215,8 @@ impl std::ops::Add for BlockSpace {
     fn add(self, other: Self) -> Self {
         Self {
             gas: self.gas + other.gas,
+            regular_gas: self.regular_gas + other.regular_gas,
+            state_gas: self.state_gas + other.state_gas,
             rlp_length: self.rlp_length + other.rlp_length,
             blob_gas: self.blob_gas + other.blob_gas,
         }
@@ -1186,6 +1226,8 @@ impl std::ops::Add for BlockSpace {
 impl std::ops::SubAssign for BlockSpace {
     fn sub_assign(&mut self, other: Self) {
         self.gas = self.gas.checked_sub(other.gas).unwrap();
+        self.regular_gas = self.regular_gas.checked_sub(other.regular_gas).unwrap();
+        self.state_gas = self.state_gas.checked_sub(other.state_gas).unwrap();
         self.rlp_length = self.rlp_length.checked_sub(other.rlp_length).unwrap();
         self.blob_gas = self.blob_gas.checked_sub(other.blob_gas).unwrap();
     }
