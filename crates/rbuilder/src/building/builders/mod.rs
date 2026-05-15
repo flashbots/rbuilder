@@ -52,6 +52,11 @@ pub struct Block {
     pub execution_requests: Vec<Bytes>,
     /// Bid adjustment data by fee payer address.
     pub bid_adjustments: HashMap<Address, BidAdjustmentData>,
+    /// EIP-7928 rlp encoded BAL, populated post amsterdam from
+    /// the EVM executor (`BlockBuilderOutcome.block_access_list`). `None`
+    /// pre amsterdam. Required to populate `ExecutionPayloadGloas.block_access_list`
+    /// in the EPBS envelope.
+    pub block_access_list: Option<Bytes>,
 }
 
 /// Id to uniquely identify every block built (unique even among different algorithms).

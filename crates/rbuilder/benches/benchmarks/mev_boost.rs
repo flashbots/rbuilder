@@ -56,14 +56,12 @@ fn bench_mevboost_sign(c: &mut Criterion) {
         serde_json::from_str(&json_content).expect("Failed to deserialize JSON");
 
     // Extract blob data from JSON and convert it to Blob
-    let blobs: Vec<Blob> = vec![Blob::from_hex(
-        json_value
-            .get("data")
-            .unwrap()
-            .as_str()
-            .expect("Data is not a valid string"),
-    )
-    .unwrap()];
+    let blob_hex = json_value
+        .get("data")
+        .unwrap()
+        .as_str()
+        .expect("Data is not a valid string");
+    let blobs: Vec<Blob> = vec![blob_hex.parse().unwrap()];
 
     // Generate a BlobTransactionSidecar from the blobs
     let blob = BlobTransactionSidecar::try_from_blobs(blobs).unwrap();

@@ -104,6 +104,7 @@ impl BlockBuildingHelper for MockBlockBuildingHelper {
             txs_blobs_sidecars: Vec::new(),
             execution_requests: Default::default(),
             bid_adjustments: Default::default(),
+            block_access_list: None,
         };
 
         Ok(FinalizeBlockResult { block })
