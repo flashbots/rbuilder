@@ -500,10 +500,8 @@ impl L1Config {
                             }
                         };
 
-                    // a builder is `is_active_builder` only once its `deposit_epoch`
-                    // has been finalized. Publishing bids before that fails
                     match client.get_finalized_epoch().await {
-                        Ok(finalized_epoch) if finalized_epoch >= deposit_epoch => {
+                        Ok(finalized_epoch) if finalized_epoch > deposit_epoch => {
                             info!(
                                 builder_index,
                                 deposit_epoch, finalized_epoch, "Builder is finalized-active"
