@@ -431,7 +431,8 @@ impl Client {
         // Bound the envelope reveal POST so a stuck cl cannot leak our spawned
         // reveal task indefinitely.
         // TODO: revisit the timeout value
-        const ENVELOPE_REVEAL_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(5500);
+        // const ENVELOPE_REVEAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        const ENVELOPE_REVEAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
         let response = reqwest::Client::new()
             .post(url)
             .header("Eth-Consensus-Version", "gloas")
