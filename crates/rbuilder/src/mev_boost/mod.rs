@@ -1053,20 +1053,25 @@ async fn map_response(response: Response) -> Result<(), SubmitBlockErr> {
         return Ok(());
     }
 
-    match serde_json::from_slice::<RelayResponse<()>>(&bytes) {
+    map_response_body(status, &bytes)
+}
+
+fn map_response_body(status: StatusCode, bytes: &[u8]) -> Result<(), SubmitBlockErr> {
+    match serde_json::from_slice::<RelayResponse<()>>(bytes) {
         Ok(RelayResponse::Ok(_)) => Ok(()),
         Ok(RelayResponse::Error(error)) => Err(map_relay_error_message(&error.message, error.code)),
         Err(_) => {
             // bloxroute returns empty response in this format which we handle here because its not valid
             // jsonrpc response
-            let data = String::from_utf8_lossy(&bytes).to_string();
+            let data = String::from_utf8_lossy(bytes).to_string();
             let trimmed = data.trim();
             if trimmed == "{}" {
                 return Ok(());
             }
 
-            // bloxroute may return a plain-text success response instead of JSON
-            if status == StatusCode::OK && trimmed == "block received" {
+            // bloxroute may return a plain-text success response instead of JSON,
+            // sometimes wrapped in quotes as a JSON string literal
+            if status == StatusCode::OK && trimmed.trim_matches('"') == "block received" {
                 return Ok(());
             }
 
@@ -1389,5 +1394,35 @@ mod tests {
             .submit_block(&sub_relay, &registration, true, true, false, false)
             .await
             .expect("OPS!");
+    }
+
+    #[test]
+    fn test_map_response_body_block_received_plain() {
+        let result = map_response_body(StatusCode::OK, b"block received");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_map_response_body_block_received_quoted() {
+        let result = map_response_body(StatusCode::OK, b"\"block received\"");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_map_response_body_block_received_quoted_with_whitespace() {
+        let result = map_response_body(StatusCode::OK, b" \"block received\"\n");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_map_response_body_block_received_non_200() {
+        let result = map_response_body(StatusCode::BAD_REQUEST, b"block received");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_map_response_body_empty_json_object() {
+        let result = map_response_body(StatusCode::OK, b"{}");
+        assert!(result.is_ok());
     }
 }
