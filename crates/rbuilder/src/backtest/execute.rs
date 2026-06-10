@@ -11,7 +11,7 @@ use crate::{
 use alloy_eips::BlockNumHash;
 use alloy_primitives::U256;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

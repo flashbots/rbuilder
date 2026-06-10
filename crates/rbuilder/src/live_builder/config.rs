@@ -61,10 +61,11 @@ use eyre::Context;
 use lazy_static::lazy_static;
 use rbuilder_config::EnvOrValue;
 use rbuilder_primitives::mev_boost::{MevBoostRelayID, RelayMode};
-use reth_chainspec::{Chain, ChainSpec, NamedChain};
+use crate::chain::ChainSpec;
+use reth_chainspec::{Chain, EthChainSpec as _, NamedChain};
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
+use crate::chain::DbNodeTypes;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::Deserialize;
@@ -415,7 +416,7 @@ impl L1Config {
         Option<JoinHandle<()>>,
     )> {
         let signing_domain = get_signing_domain(
-            chain_spec.chain,
+            chain_spec.chain(),
             self.beacon_clients()?,
             self.genesis_fork_version.clone(),
         )?;
@@ -764,7 +765,7 @@ pub fn create_provider_factory(
     reth_static_files_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     root_hash_config: Option<RootHashContext>,
-) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>> {
     let reth_db_path = match (reth_db_path, reth_datadir) {
         (Some(reth_db_path), _) => PathBuf::from(reth_db_path),
         (None, Some(reth_datadir)) => reth_datadir.join("db"),

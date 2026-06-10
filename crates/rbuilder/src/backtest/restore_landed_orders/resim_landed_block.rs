@@ -15,7 +15,7 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::{TxHash, B256, I256};
 use eyre::Context;
 use rbuilder_primitives::evm_inspector::SlotKey;
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use reth_primitives::{Receipt, Recovered, TransactionSigned};
 use std::sync::Arc;
 

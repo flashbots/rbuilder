@@ -7,7 +7,8 @@ use alloy_consensus::{constants::KECCAK_EMPTY, TxEip1559};
 use alloy_evm::Database;
 use alloy_primitives::{Address, TxKind as TransactionKind, U256};
 use alloy_rlp::Encodable as _;
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
+use reth_chainspec::EthChainSpec as _;
 use reth_errors::ProviderError;
 use reth_evm::Evm;
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
@@ -26,7 +27,7 @@ pub fn create_payout_tx(
     value: U256,
 ) -> Result<Recovered<TransactionSigned>, secp256k1::Error> {
     let tx = Transaction::Eip1559(TxEip1559 {
-        chain_id: chain_spec.chain.id(),
+        chain_id: chain_spec.chain_id(),
         nonce,
         gas_limit,
         max_fee_per_gas: basefee as u128,

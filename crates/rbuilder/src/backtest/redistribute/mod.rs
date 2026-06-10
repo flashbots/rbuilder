@@ -23,7 +23,7 @@ use alloy_primitives::{utils::format_ether, Address, B256, I256, U256};
 use itertools::Itertools;
 use rayon::prelude::*;
 use rbuilder_primitives::{Order, OrderId};
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},

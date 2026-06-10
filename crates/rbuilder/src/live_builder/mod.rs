@@ -45,7 +45,7 @@ use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
 };
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use reth_primitives::{Recovered, TransactionSigned};
 use std::{
     cmp::min,

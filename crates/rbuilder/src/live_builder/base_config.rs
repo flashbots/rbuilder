@@ -26,11 +26,10 @@ use eth_sparse_mpt::{ETHSpareMPTVersion, RootHashThreadPool};
 use eyre::Context;
 use jsonrpsee::RpcModule;
 use rbuilder_config::{EnvOrValue, LoggerConfig, OtlpConfig, TracingConfig};
-use reth::chainspec::chain_value_parser;
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
+use crate::chain::DbNodeTypes;
 use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
 use serde::{Deserialize, Deserializer};
@@ -284,7 +283,7 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        chain_value_parser(&self.chain)
+        crate::chain::parse_chain_spec(&self.chain)
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
@@ -292,7 +291,7 @@ impl BaseConfig {
     pub fn create_reth_provider_factory(
         &self,
         skip_root_hash: bool,
-    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
+    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>>
     {
         create_provider_factory(
             self.reth_datadir.as_deref(),
@@ -560,7 +559,7 @@ pub fn create_provider_factory(
     chain_spec: Arc<ChainSpec>,
     rw: bool,
     root_hash_config: Option<RootHashContext>,
-) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
+) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>> {
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
         let reth_datadir = reth_datadir
@@ -686,7 +685,7 @@ mod test {
         // before `create_provider_factory` reopens the same paths below.
         {
             let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
-            let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
+            let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<DbNodeTypes, _>>::new(
                 db,
                 SEPOLIA.clone(),
                 StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),

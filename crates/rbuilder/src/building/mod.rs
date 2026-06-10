@@ -21,21 +21,22 @@ use crate::{
 };
 use alloy_consensus::{constants::KECCAK_EMPTY, Header, EMPTY_OMMER_ROOT_HASH};
 use alloy_eips::{
-    eip1559::{calculate_block_gas_limit, ETHEREUM_BLOCK_GAS_LIMIT_30M},
     eip4895::Withdrawals,
     eip7594::BlobTransactionSidecarVariant,
     eip7685::Requests,
     eip7840::BlobParams,
     merge::BEACON_NONCE,
 };
-use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110, Database};
+#[cfg(not(feature = "arc"))]
+use alloy_evm::{block::system_calls::SystemCaller, eth::eip6110};
+use alloy_evm::{env::EvmEnv, Database};
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
 use cached_reads::SharedCachedReads;
 use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
-use evm::EthCachedEvmFactory;
+use evm::{create_chain_evm_factory, ChainCachedEvmFactory};
 use jsonrpsee::core::Serialize;
 use parking_lot::Mutex;
 use rbuilder_primitives::{
@@ -46,10 +47,11 @@ use reth::{
     payload::PayloadId,
     primitives::{Block, SealedBlock},
 };
-use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
+use crate::chain::ChainSpec;
+use reth_chainspec::{EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
-use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
+use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
 use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
@@ -73,6 +75,8 @@ use time::OffsetDateTime;
 use tracing::{error, trace};
 use tx_sim_cache::TxExecutionCache;
 
+#[cfg(feature = "arc")]
+pub mod arc_support;
 pub mod bid_adjustments;
 pub mod block_orders;
 pub mod builders;
@@ -104,7 +108,7 @@ const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
-    pub evm_factory: EthCachedEvmFactory,
+    pub evm_factory: ChainCachedEvmFactory,
     pub evm_env: EvmEnv,
     pub attributes: EthPayloadBuilderAttributes,
     pub chain_spec: Arc<ChainSpec>,
@@ -157,14 +161,9 @@ impl BlockBuildingContext {
             EngineApiMessageVersion::default() as u8,
         )
         .expect("PayloadBuilderAttributes::try_new");
-        let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
-        let gas_limit = calculate_block_gas_limit(
-            parent.gas_limit,
-            // This is only for tests, prefer_gas_limit should always be Some since
-            // the protocol does NOT cap the block to ETHEREUM_BLOCK_GAS_LIMIT.
-            prefer_gas_limit.unwrap_or(ETHEREUM_BLOCK_GAS_LIMIT_30M),
-        );
-        let mut evm_env = eth_evm_config
+        let evm_config = crate::chain::evm_config(chain_spec.clone());
+        let gas_limit = crate::chain::next_block_gas_limit(parent.gas_limit, prefer_gas_limit);
+        let mut evm_env = evm_config
             .next_evm_env(
                 parent,
                 &NextBlockEnvAttributes {
@@ -208,7 +207,7 @@ impl BlockBuildingContext {
             Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
         let block_number = evm_env.block_env.number.try_into().ok()?;
         Some(BlockBuildingContext {
-            evm_factory: EthCachedEvmFactory::default(),
+            evm_factory: create_chain_evm_factory(&chain_spec),
             evm_env,
             attributes,
             chain_spec,
@@ -254,8 +253,8 @@ impl BlockBuildingContext {
         mev_blocker_price: U256,
     ) -> BlockBuildingContext {
         let block_number = onchain_block.header.number;
-        let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
-        let mut evm_env = eth_evm_config
+        let evm_config = crate::chain::evm_config(chain_spec.clone());
+        let mut evm_env = evm_config
             .evm_env(&onchain_block.header)
             .expect("evm env config");
         evm_env.block_env.beneficiary = beneficiary;
@@ -290,7 +289,7 @@ impl BlockBuildingContext {
         let max_blob_gas_per_block =
             Self::max_blob_gas_per_block_at(&chain_spec, attributes.timestamp());
         BlockBuildingContext {
-            evm_factory: EthCachedEvmFactory::default(),
+            evm_factory: create_chain_evm_factory(&chain_spec),
             evm_env,
             attributes,
             chain_spec,
@@ -321,7 +320,7 @@ impl BlockBuildingContext {
         onchain_block.header.base_fee_per_gas = Some(0);
         BlockBuildingContext::from_onchain_block(
             onchain_block,
-            reth_chainspec::MAINNET.clone(),
+            crate::chain::chain_spec_for_testing(),
             Default::default(),
             Default::default(),
             Default::default(),
@@ -902,42 +901,62 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             .revert(finalize_revert_state.state_reverts);
     }
 
-    /// returns (requests, withdrawals_root)
+    /// returns (requests, withdrawals_root, header extra_data)
     pub fn process_requests<DB>(
         &self,
         state: &mut BlockState<DB>,
         ctx: &BlockBuildingContext,
         finalize_revert_state: &mut FinalizeRevertStateCurrentIteration,
-    ) -> Result<(Option<Requests>, Option<B256>), FinalizeError>
+    ) -> Result<(Option<Requests>, Option<B256>, Bytes), FinalizeError>
     where
         DB: Database<Error = ProviderError>,
     {
         let mut db = state.new_db_ref();
 
         // Apply and gather execution requests
-        let requests = if ctx
-            .chain_spec
-            .is_prague_active_at_timestamp(ctx.attributes.timestamp())
-        {
-            // Collect all EIP-6110 deposits
-            let deposit_requests = eip6110::parse_deposits_from_receipts(
-                &ctx.chain_spec,
-                self.executed_tx_infos.iter().map(|info| &info.receipt),
-            )
-            .map_err(BlockExecutionError::Validation)?;
+        #[cfg(not(feature = "arc"))]
+        let (requests, extra_data) = {
+            let requests = if ctx
+                .chain_spec
+                .is_prague_active_at_timestamp(ctx.attributes.timestamp())
+            {
+                // Collect all EIP-6110 deposits
+                let deposit_requests = eip6110::parse_deposits_from_receipts(
+                    &ctx.chain_spec,
+                    self.executed_tx_infos.iter().map(|info| &info.receipt),
+                )
+                .map_err(BlockExecutionError::Validation)?;
 
-            let mut requests = Requests::default();
-            if !deposit_requests.is_empty() {
-                requests.push_request_with_type(eip6110::DEPOSIT_REQUEST_TYPE, deposit_requests);
-            }
+                let mut requests = Requests::default();
+                if !deposit_requests.is_empty() {
+                    requests
+                        .push_request_with_type(eip6110::DEPOSIT_REQUEST_TYPE, deposit_requests);
+                }
 
-            let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
-            let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
-                .evm_with_env(db.as_mut(), ctx.evm_env.clone());
-            requests.extend(system_caller.apply_post_execution_changes(&mut evm)?);
-            Some(requests)
-        } else {
-            None
+                let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
+                let mut evm = crate::chain::evm_config(ctx.chain_spec.clone())
+                    .evm_with_env(db.as_mut(), ctx.evm_env.clone());
+                requests.extend(system_caller.apply_post_execution_changes(&mut evm)?);
+                Some(requests)
+            } else {
+                None
+            };
+            (requests, Bytes::from(ctx.extra_data.clone()))
+        };
+
+        // Arc has no execution requests (no deposit contract, no EIP-7002/7251
+        // system calls), but requires the post-block gas accounting step:
+        // persist gas values into SystemAccounting and encode the next block's
+        // base fee into the header extra_data.
+        #[cfg(feature = "arc")]
+        let (requests, extra_data) = {
+            let post_block =
+                arc_support::post_block_call(db.as_mut(), ctx, self.space_state.gas_used())?;
+            let requests = ctx
+                .chain_spec
+                .is_prague_active_at_timestamp(ctx.attributes.timestamp())
+                .then(Requests::default);
+            (requests, post_block.extra_data)
         };
 
         // Apply withdrawals
@@ -968,7 +987,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         // add one revert for processed requests
         finalize_revert_state.state_reverts += 1;
 
-        Ok((requests, withdrawals_root))
+        Ok((requests, withdrawals_root, extra_data))
     }
 
     /// Mostly based on reth's (v1.2) default_ethereum_payload_builder.
@@ -986,7 +1005,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let start = Instant::now();
 
         let step_start = Instant::now();
-        let (requests, withdrawals_root) =
+        let (requests, withdrawals_root, extra_data) =
             self.process_requests(state, ctx, &mut finalize_adjustment_state.revert_state)?;
         let block_number = ctx.block();
 
@@ -1103,7 +1122,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             gas_limit: ctx.evm_env.block_env.gas_limit,
             difficulty: U256::ZERO,
             gas_used: self.space_state.gas_used(),
-            extra_data: ctx.extra_data.clone().into(),
+            extra_data,
             parent_beacon_block_root: ctx.attributes.parent_beacon_block_root,
             blob_gas_used,
             excess_blob_gas,
@@ -1216,14 +1235,25 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             0,
         ));
 
-        let mut db = state.new_db_ref();
-        let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
-        let mut evm = EthEvmConfig::new(ctx.chain_spec.clone())
-            .evm_with_env(db.as_mut(), ctx.evm_env.clone());
-        system_caller
-            .apply_beacon_root_contract_call(ctx.attributes.parent_beacon_block_root(), &mut evm)?;
-        system_caller.apply_blockhashes_contract_call(ctx.attributes.parent, &mut evm)?;
-        db.as_mut().merge_transitions(BundleRetention::Reverts);
+        #[cfg(not(feature = "arc"))]
+        {
+            let mut db = state.new_db_ref();
+            let mut system_caller = SystemCaller::new(ctx.chain_spec.clone());
+            let mut evm = crate::chain::evm_config(ctx.chain_spec.clone())
+                .evm_with_env(db.as_mut(), ctx.evm_env.clone());
+            system_caller.apply_beacon_root_contract_call(
+                ctx.attributes.parent_beacon_block_root(),
+                &mut evm,
+            )?;
+            system_caller.apply_blockhashes_contract_call(ctx.attributes.parent, &mut evm)?;
+            db.as_mut().merge_transitions(BundleRetention::Reverts);
+        }
+
+        // Arc only performs the EIP-2935 blockhashes call (no beacon chain, so
+        // no EIP-4788 beacon root call).
+        #[cfg(feature = "arc")]
+        arc_support::pre_block_calls(ctx, state)?;
+
         Ok(())
     }
 }

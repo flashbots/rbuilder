@@ -30,7 +30,7 @@ use rbuilder_primitives::{
         SubmitHeaderRequestWithMetadata, ValidatorSlotData,
     },
 };
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::{sync::Notify, time::Instant};
@@ -259,7 +259,7 @@ async fn run_submit_to_relays_job(
         inc_initiated_submissions();
 
         let execution_payload = block_to_execution_payload(
-            &config.chain_spec,
+            config.chain_spec.as_ref(),
             &slot_data.payload_attributes_event.data,
             &block.sealed_block,
         );
