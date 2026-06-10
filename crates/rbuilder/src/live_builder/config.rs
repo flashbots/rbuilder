@@ -781,8 +781,21 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let reth_rocksdb_path = match (&reth_db_path, reth_datadir) {
+        (_, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
+        (reth_db_path, None) => reth_db_path
+            .parent()
+            .ok_or_else(|| eyre::eyre!("Can't derive rocksdb path from reth_db_path"))?
+            .join("rocksdb"),
+    };
+
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        reth_rocksdb_path,
+        root_hash_config,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()

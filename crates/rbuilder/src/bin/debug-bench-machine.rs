@@ -16,6 +16,7 @@ use rbuilder::{
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
     provider::StateProviderFactory,
+    provider::SyncStateProvider,
     utils::{
         extract_onchain_block_txs, find_suggested_fee_recipient, http_provider,
         mevblocker::get_mevblocker_price, Signer,
@@ -24,7 +25,6 @@ use rbuilder::{
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives_traits::SignerRecoverable;
-use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
 
@@ -104,7 +104,7 @@ async fn main() -> eyre::Result<()> {
         mev_blocker_price,
     );
 
-    let state_provider = Arc::<dyn StateProvider>::from(
+    let state_provider = SyncStateProvider::new_arc(
         provider_factory
             .provider_factory_unchecked()
             .history_by_block_number(last_block)?,

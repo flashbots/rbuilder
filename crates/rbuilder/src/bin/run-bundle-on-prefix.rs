@@ -20,7 +20,7 @@ use rbuilder::{
         OrderPriority, ThreadBlockBuildingContext,
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
-    provider::StateProviderFactory,
+    provider::{StateProviderFactory, SyncStateProvider},
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
 };
 use rbuilder_config::load_toml_config;
@@ -156,9 +156,8 @@ impl LandedBlockInfo {
             .config
             .base_config()
             .create_reth_provider_factory(true)?;
-        let block_state = provider
-            .history_by_block_hash(ctx.attributes.parent)?
-            .into();
+        let block_state =
+            SyncStateProvider::new_arc(provider.history_by_block_hash(ctx.attributes.parent)?);
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
             BuiltBlockId::ZERO,

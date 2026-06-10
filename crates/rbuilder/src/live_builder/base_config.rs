@@ -584,7 +584,7 @@ pub fn create_provider_factory(
         open_reth_db(&reth_db_path)
     }?;
 
-    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
+    let reth_static_files_path = match (reth_static_files_path, reth_datadir.clone()) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
         (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
         (None, None) => {
@@ -592,8 +592,21 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let reth_rocksdb_path = match (&reth_db_path, reth_datadir) {
+        (_, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
+        (reth_db_path, None) => reth_db_path
+            .parent()
+            .ok_or_else(|| eyre::eyre!("Can't derive rocksdb path from reth_db_path"))?
+            .join("rocksdb"),
+    };
+
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        reth_rocksdb_path,
+        root_hash_config,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -632,7 +645,10 @@ mod test {
     use reth_db::init_db;
     use reth_db_common::init::init_genesis;
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
-    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
+    use reth_provider::{
+        providers::{RocksDBProvider, StaticFileProvider},
+        ProviderFactory,
+    };
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -666,13 +682,23 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.keep());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
-        let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
-            db,
-            SEPOLIA.clone(),
-            StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
-        );
-        init_genesis(&provider_factory).unwrap();
+        // Scoped so every RW handle (mdbx env, static files, rocksdb lock) is dropped
+        // before `create_provider_factory` reopens the same paths below.
+        {
+            let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
+            let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
+                db,
+                SEPOLIA.clone(),
+                StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
+                RocksDBProvider::builder(data_dir.data_dir().join("rocksdb"))
+                    .with_default_tables()
+                    .build()
+                    .unwrap(),
+                crate::utils::reth_task_runtime(),
+            )
+            .unwrap();
+            init_genesis(&provider_factory).unwrap();
+        }
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();

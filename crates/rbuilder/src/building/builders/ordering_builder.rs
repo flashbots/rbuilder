@@ -5,6 +5,7 @@
 //! The described algorithm is ran continuously adding new SimulatedOrders (they arrive on real time!) on each iteration until we run out of time (slot ends).
 //! Sorting criteria are described on [`Sorting`].
 //! For some more details see [`OrderingBuilderConfig`]
+use crate::provider::{StateProviderArc, SyncStateProvider};
 use crate::{
     building::{
         block_orders_from_sim_orders,
@@ -32,7 +33,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::I256;
 use derivative::Derivative;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
     marker::PhantomData,
@@ -95,11 +95,11 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
 {
     let payload_id = input.ctx.payload_id;
 
-    let block_state: Arc<dyn StateProvider> = match input
+    let block_state: StateProviderArc = match input
         .provider
         .history_by_block_hash(input.ctx.attributes.parent)
     {
-        Ok(state) => Arc::from(state),
+        Ok(state) => SyncStateProvider::new_arc(state),
         Err(err) => {
             error!(
                 ?err,
@@ -191,7 +191,7 @@ where
         block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut local_ctx = ThreadBlockBuildingContext::default();
     let mut builder = OrderingBuilderContext::new(
-        Arc::from(state_provider),
+        SyncStateProvider::new_arc(state_provider),
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -220,7 +220,7 @@ where
 #[derivative(Debug)]
 pub struct OrderingBuilderContext {
     #[derivative(Debug = "ignore")]
-    state: Arc<dyn StateProvider>,
+    state: StateProviderArc,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -238,7 +238,7 @@ pub struct OrderingBuilderContext {
 
 impl OrderingBuilderContext {
     pub fn new(
-        state: Arc<dyn StateProvider>,
+        state: StateProviderArc,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,

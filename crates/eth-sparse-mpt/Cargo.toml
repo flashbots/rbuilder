@@ -17,7 +17,7 @@ rustc-hash = "2.0.0"
 rayon = "1.10.0"
 smallvec = "1.13.2"
 alloy-trie.workspace = true
-nybbles = { version = "0.3.3", features = ["serde"] }
+nybbles = { version = "0.4", features = ["serde"] }
 
 tracing.workspace = true
 
@@ -32,6 +32,7 @@ reth-node-api = { workspace = true, optional = true }
 reth-node-ethereum = { workspace = true, optional = true }
 reth-trie.workspace = true
 reth-trie-parallel = { workspace = true, optional = true }
+reth-tasks = { workspace = true, optional = true }
 reth-trie-db.workspace = true
 reth-provider.workspace = true
 reth-revm = { workspace = true, optional = true }
@@ -64,6 +65,7 @@ dev-tools = [
     "dep:reth-node-api",
     "dep:reth-node-ethereum",
     "dep:reth-trie-parallel",
+    "dep:reth-tasks",
     "dep:reth-revm",
 ]
 

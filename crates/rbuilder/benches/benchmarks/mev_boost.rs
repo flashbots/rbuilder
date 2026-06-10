@@ -1,12 +1,15 @@
 use alloy_consensus::{Block, Header};
-use alloy_eips::{eip4844::BlobTransactionSidecar, eip7594::BlobTransactionSidecarVariant};
+use alloy_eips::{
+    eip4844::{Blob, BlobTransactionSidecar},
+    eip7594::BlobTransactionSidecarVariant,
+};
+use alloy_primitives::hex::FromHex;
 use alloy_primitives::U256;
 use alloy_rpc_types_beacon::relay::SubmitBlockRequest as AlloySubmitBlockRequest;
 use alloy_rpc_types_beacon::BlsPublicKey;
 use criterion::{criterion_group, Criterion};
 use rbuilder::mev_boost::{rpc::TestDataGenerator, sign_block_for_relay, BLSBlockSigner};
 use reth::primitives::SealedBlock;
-use reth_primitives::kzg::Blob;
 use ssz::Encode;
 use std::{fs, path::PathBuf, sync::Arc};
 

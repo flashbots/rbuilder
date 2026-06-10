@@ -12,7 +12,7 @@ use crate::{
         order_input::orderpool::OrdersForBlock,
         simulation::simulation_job_tracer::SimulationJobTracer,
     },
-    provider::StateProviderFactory,
+    provider::{StateProviderFactory, SyncStateProvider},
     utils::{gen_uid, NonceCache, Signer},
 };
 use ahash::HashMap;
@@ -151,7 +151,7 @@ where
                             return;
                         }
                     };
-                    NonceCache::new(state.into())
+                    NonceCache::new(SyncStateProvider::new_arc(state))
                 };
 
                 let sim_tree = SimTree::new(nonces);

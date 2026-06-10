@@ -103,7 +103,7 @@ fn verify_proof(key: &[u8], proof: Vec<(Nibbles, Vec<u8>)>) -> B256 {
     let nibble_key = Nibbles::unpack(key);
     let proof_store = ProofStore::default();
     proof_store
-        .add_proof(nibble_key.clone(), proof)
+        .add_proof(nibble_key, proof)
         .expect("failed to add proof to proof store");
     let mut trie = Trie::default();
     let found = trie

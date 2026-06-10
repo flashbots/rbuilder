@@ -119,6 +119,7 @@ mod test {
 
     use super::*;
     use alloy_consensus::{SidecarBuilder, SimpleCoder};
+    use alloy_eips::{eip4844::BlobTransactionSidecar, eip7594::BlobTransactionSidecarVariant};
     use alloy_network::{EthereumWallet, TransactionBuilder};
     use alloy_node_bindings::Anvil;
     use alloy_primitives::U256;
@@ -161,7 +162,8 @@ mod test {
 
         let sidecar: SidecarBuilder<SimpleCoder> =
             SidecarBuilder::from_slice("Blobs are fun!".as_bytes());
-        let sidecar = sidecar.build().unwrap();
+        let sidecar: BlobTransactionSidecar = sidecar.build().unwrap();
+        let sidecar = BlobTransactionSidecarVariant::Eip4844(sidecar);
 
         let gas_price = provider.get_gas_price().await.unwrap();
         let eip1559_est = provider.estimate_eip1559_fees().await.unwrap();

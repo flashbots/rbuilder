@@ -139,7 +139,7 @@ impl TestChainState {
         {
             let provider = provider_factory.provider_rw()?;
             provider.insert_block(
-                Block::new(genesis_header.header().clone(), BlockBody::default())
+                &Block::new(genesis_header.header().clone(), BlockBody::default())
                     .try_into_recovered()
                     .unwrap(),
             )?;
