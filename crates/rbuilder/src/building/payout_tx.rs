@@ -273,7 +273,9 @@ mod tests {
         block.header.excess_blob_gas = Some(1000);
         let ctx = BlockBuildingContext::from_onchain_block(
             block,
-            chain_spec,
+            Arc::new(crate::chain::chain_spec_from_inner(
+                chain_spec.as_ref().clone(),
+            )),
             Some(spec_id),
             Default::default(),
             signer.address,

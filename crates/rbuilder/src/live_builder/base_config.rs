@@ -687,7 +687,7 @@ mod test {
             let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
             let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<DbNodeTypes, _>>::new(
                 db,
-                SEPOLIA.clone(),
+                Arc::new(crate::chain::chain_spec_from_inner(SEPOLIA.as_ref().clone())),
                 StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
                 RocksDBProvider::builder(data_dir.data_dir().join("rocksdb"))
                     .with_default_tables()
@@ -734,7 +734,7 @@ mod test {
                 reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
-                Default::default(),
+                Arc::new(crate::chain::chain_spec_from_inner(Default::default())),
                 true,
                 None,
             );

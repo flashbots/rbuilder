@@ -219,6 +219,10 @@ fn bundle_revert_tests() -> eyre::Result<()> {
 }
 /// Test combined refunds
 #[test]
+#[cfg_attr(
+    feature = "arc",
+    ignore = "encodes Ethereum gas/refund semantics; Arc overrides SELFDESTRUCT and emits EIP-7708 logs"
+)]
 fn test_bundle_combined_refunds() -> eyre::Result<()> {
     let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
@@ -295,6 +299,10 @@ fn test_bundle_combined_refunds() -> eyre::Result<()> {
 
 /// Test delayed refunds
 #[test]
+#[cfg_attr(
+    feature = "arc",
+    ignore = "encodes Ethereum gas/refund semantics; Arc overrides SELFDESTRUCT and emits EIP-7708 logs"
+)]
 fn test_bundle_delayed_refunds() -> eyre::Result<()> {
     let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
@@ -372,6 +380,10 @@ fn test_bundle_delayed_refunds() -> eyre::Result<()> {
 
 /// Test immediate refunds to contract recipients
 #[test]
+#[cfg_attr(
+    feature = "arc",
+    ignore = "encodes Ethereum gas/refund semantics; Arc overrides SELFDESTRUCT and emits EIP-7708 logs"
+)]
 fn test_bundle_contract_refunds() -> eyre::Result<()> {
     let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let profit: u64 = 100_000;
@@ -414,6 +426,10 @@ fn test_bundle_contract_refunds() -> eyre::Result<()> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "arc",
+    ignore = "encodes Ethereum gas/refund semantics; Arc overrides SELFDESTRUCT and emits EIP-7708 logs"
+)]
 fn test_bundle_ok_inner_tx_profits() -> eyre::Result<()> {
     let target_block = BlockArgs::MIN_BLOCK_NUMBER;
     let mut test_setup = TestSetup::gen_test_setup(BlockArgs::default().with_number(target_block))?;

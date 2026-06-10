@@ -273,3 +273,144 @@ fn gas_limit(ctx: &BlockBuildingContext) -> u64 {
 fn base_fee(ctx: &BlockBuildingContext) -> u64 {
     ctx.evm_env.block_env.basefee
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        building::{
+            builders::mock_block_building_helper::MockRootHasher,
+            evm::{create_chain_evm_factory, EvmFactory as _},
+            BlockBuildingContext,
+        },
+        live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
+        utils::Signer,
+    };
+    use alloy_primitives::{Address, U256};
+    use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
+    use alloy_rpc_types_engine::PayloadAttributes;
+    use reth_chainspec::EthChainSpec as _;
+    use revm::{
+        context::TxEnv,
+        database::{CacheDB, EmptyDB},
+        state::AccountInfo,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn parse_named_arc_chains() {
+        for name in ["arc-localdev", "arc-devnet", "arc-testnet", "arc-mainnet"] {
+            let spec = chain::parse_chain_spec(name).unwrap();
+            assert!(spec.chain_id() != 0);
+        }
+    }
+
+    /// The base fee of a new Arc block must come from the parent header's
+    /// extra_data (where the executor of the parent block encoded it), and the
+    /// gas limit must be exactly the suggested one (ProtocolConfig value), not
+    /// an EIP-1559 gradual adjustment.
+    #[test]
+    fn block_env_from_arc_parent() {
+        let chain_spec = chain::chain_spec_for_testing();
+        let mut parent = chain::inner_chain_spec(&chain_spec)
+            .sealed_genesis_header()
+            .header()
+            .clone();
+        parent.extra_data = encode_base_fee_to_bytes(12_345);
+        let parent_hash = parent.hash_slow();
+
+        let attributes = PayloadAttributesEvent {
+            version: "arc".to_string(),
+            data: PayloadAttributesData {
+                proposal_slot: 1,
+                parent_block_root: Default::default(),
+                parent_block_number: parent.number,
+                parent_block_hash: parent_hash,
+                proposer_index: 0,
+                payload_attributes: PayloadAttributes {
+                    timestamp: parent.timestamp + 1,
+                    prev_randao: Default::default(),
+                    suggested_fee_recipient: Address::random(),
+                    withdrawals: Some(vec![]),
+                    parent_beacon_block_root: Some(parent_hash),
+                },
+            },
+        };
+
+        let ctx = BlockBuildingContext::from_attributes(
+            attributes,
+            &parent,
+            Signer::random(),
+            chain_spec,
+            Default::default(),
+            Some(55_000_000),
+            vec![],
+            None,
+            Arc::new(MockRootHasher {}),
+            0,
+            false,
+            true,
+            U256::ZERO,
+            Default::default(),
+            Arc::new(MempoolTxsDetector::new()),
+        )
+        .unwrap();
+
+        assert_eq!(ctx.evm_env.block_env.basefee, 12_345);
+        assert_eq!(ctx.evm_env.block_env.gas_limit, 55_000_000);
+    }
+
+    /// A plain value transfer through the rbuilder EVM factory must emit the
+    /// Arc EIP-7708 native transfer log (proving order execution runs through
+    /// the Arc EVM, not the stock Ethereum one).
+    #[test]
+    fn arc_evm_emits_native_transfer_log() {
+        let chain_spec = chain::chain_spec_for_testing();
+        let factory = create_chain_evm_factory(&chain_spec);
+
+        let alice = Address::random();
+        let bob = Address::random();
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            alice,
+            AccountInfo {
+                balance: U256::from(10).pow(U256::from(18)),
+                ..Default::default()
+            },
+        );
+
+        let evm_config = chain::evm_config(chain_spec.clone());
+        let genesis = chain::inner_chain_spec(&chain_spec).sealed_genesis_header();
+        let mut evm_env = evm_config.evm_env(genesis.header()).unwrap();
+        evm_env.block_env.basefee = 0;
+        evm_env.cfg_env.chain_id = chain_spec.chain_id();
+
+        let mut evm = factory.create_evm(&mut db, evm_env);
+        let result = alloy_evm::Evm::transact(
+            &mut evm,
+            TxEnv {
+                caller: alice,
+                kind: alloy_primitives::TxKind::Call(bob),
+                value: U256::from(7),
+                gas_limit: 21_000,
+                gas_price: 0,
+                chain_id: Some(chain_spec.chain_id()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(result.result.is_success());
+        let logs = result.result.logs();
+        // EIP-7708 (Zero5+): plain value transfers emit an ERC-20 style
+        // Transfer log from the EVM system address.
+        let system_address = Address::from_slice(&alloy_primitives::hex!(
+            "fffffffffffffffffffffffffffffffffffffffe"
+        ));
+        assert!(
+            logs.iter().any(|log| log.address == system_address
+                && log.data.data.as_ref().last() == Some(&7)),
+            "expected EIP-7708 native transfer log, got: {logs:?}"
+        );
+    }
+}

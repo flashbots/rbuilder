@@ -215,6 +215,10 @@ mod tests {
     use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 
     #[tokio::test]
+    #[cfg_attr(
+        feature = "arc",
+        ignore = "encodes Ethereum gas/refund semantics; Arc overrides SELFDESTRUCT and emits EIP-7708 logs"
+    )]
     async fn test_simulate_order_to_coinbase() {
         let test_context = TestChainState::new(BlockArgs::default()).unwrap();
 
