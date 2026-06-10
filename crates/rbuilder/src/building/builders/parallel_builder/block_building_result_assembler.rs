@@ -23,7 +23,7 @@ use crate::{
         },
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
-    live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
+    live_builder::block_output::UnfinishedBlockBuildingSink,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
@@ -37,7 +37,7 @@ pub struct BlockBuildingResultAssembler {
     cancellation_token: CancellationToken,
     discard_txs: bool,
     builder_name: String,
-    sink: Option<UnfinishedBuiltBlocksInput>,
+    sink: Option<std::sync::Arc<dyn UnfinishedBlockBuildingSink>>,
     best_results: Arc<BestResults>,
     run_id: u64,
     last_version: Option<u64>,
@@ -62,7 +62,7 @@ impl BlockBuildingResultAssembler {
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,
-        sink: Option<UnfinishedBuiltBlocksInput>,
+        sink: Option<std::sync::Arc<dyn UnfinishedBlockBuildingSink>>,
         built_block_id_source: Arc<BuiltBlockIdSource>,
         max_order_execution_duration_warning: Option<Duration>,
     ) -> Self {

@@ -10056,6 +10056,7 @@ dependencies = [
  "reth-db",
  "reth-db-common",
  "reth-errors",
+ "reth-ethereum-engine-primitives",
  "reth-evm",
  "reth-evm-ethereum",
  "reth-node-api",

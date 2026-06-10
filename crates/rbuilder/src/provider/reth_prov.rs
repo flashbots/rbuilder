@@ -18,6 +18,13 @@ pub struct StateProviderFactoryFromRethProvider<P> {
     root_hash_context: RootHashContext,
 }
 
+impl<P> std::fmt::Debug for StateProviderFactoryFromRethProvider<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateProviderFactoryFromRethProvider")
+            .finish_non_exhaustive()
+    }
+}
+
 impl<P> StateProviderFactoryFromRethProvider<P> {
     pub fn new(provider: P, root_hash_context: RootHashContext) -> Self {
         Self {

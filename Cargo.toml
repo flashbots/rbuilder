@@ -89,6 +89,7 @@ reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
+reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }

@@ -11,6 +11,7 @@ use rbuilder_primitives::{
     TransactionSignedEcRecoveredWithBlobs,
 };
 use crate::chain::ChainSpec;
+#[allow(unused_imports)]
 use reth_chainspec::EthChainSpec as _;
 use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
 use revm::context::CfgEnv;

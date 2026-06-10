@@ -50,8 +50,8 @@ use super::{
         BlockListProvider, HttpBlockListProvider, NullBlockListProvider,
         StaticFileBlockListProvider,
     },
-    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
-    payload_events::MevBoostSlotDataGenerator,
+    block_output::UnfinishedBlockBuildingSinkFactory,
+    payload_events::SlotSource,
 };
 
 /// Base config to be used by all builders.
@@ -220,8 +220,8 @@ impl BaseConfig {
         &self,
         cancellation_token: tokio_util::sync::CancellationToken,
         global_abort: tokio_util::sync::CancellationToken,
-        unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
-        slot_source: MevBoostSlotDataGenerator,
+        unfinished_built_blocks_input_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
+        slot_source: SlotSource,
         provider: P,
         blocklist_provider: Arc<dyn BlockListProvider>,
     ) -> eyre::Result<super::LiveBuilder<P>>

@@ -325,3 +325,23 @@ fn report_slot_withdrawals_to_fee_recipients(data: &MevBoostSlotData) {
         );
     }
 }
+
+/// Source of building slots for the [`crate::live_builder::LiveBuilder`].
+#[derive(Debug)]
+pub enum SlotSource {
+    /// Slots derived from CL payload_attributes events + MEV-Boost relay
+    /// registrations (Ethereum L1 flow).
+    MevBoost(MevBoostSlotDataGenerator),
+    /// Slots pushed by an external driver, e.g. engine API payload jobs (Arc:
+    /// Malachite consensus triggers engine_forkchoiceUpdated with attributes).
+    Channel(mpsc::UnboundedReceiver<MevBoostSlotData>),
+}
+
+impl SlotSource {
+    pub fn recv_slot_channel(self) -> mpsc::UnboundedReceiver<MevBoostSlotData> {
+        match self {
+            SlotSource::MevBoost(generator) => generator.recv_slot_channel(),
+            SlotSource::Channel(receiver) => receiver,
+        }
+    }
+}

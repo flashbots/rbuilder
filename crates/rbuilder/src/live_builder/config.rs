@@ -1196,7 +1196,7 @@ pub async fn create_builder_from_sink<P>(
     abort_token: CancellationToken,
 ) -> eyre::Result<super::LiveBuilder<P>>
 where
-    P: StateProviderFactory,
+    P: StateProviderFactory + Clone + 'static,
 {
     let blocklist_provider = base_config
         .blocklist_provider(cancellation_token.clone())
@@ -1214,8 +1214,8 @@ where
         .create_builder_with_provider_factory(
             cancellation_token,
             abort_token,
-            sink_factory,
-            payload_event,
+            Box::new(sink_factory),
+            crate::live_builder::payload_events::SlotSource::MevBoost(payload_event),
             provider,
             blocklist_provider,
         )

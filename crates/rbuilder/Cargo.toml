@@ -40,6 +40,7 @@ reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
 revm.workspace = true
 reth-node-ethereum.workspace = true
+reth-ethereum-engine-primitives.workspace = true
 
 # Arc chain support (enabled with the `arc` feature)
 arc-evm = { workspace = true, optional = true }
