@@ -154,7 +154,7 @@ fn spawn_rbuilder<P, V, T, S>(
                           + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
-        + reth_provider::ChainSpecProvider
+        + reth_provider::ChainSpecProvider<ChainSpec = rbuilder::chain::ChainSpec>
         + Clone
         + 'static,
     <P as ChainSpecProvider>::ChainSpec: EthereumHardforks,
@@ -196,7 +196,7 @@ where
                           + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + HeaderProvider<Header = Header>
-        + reth_provider::ChainSpecProvider
+        + reth_provider::ChainSpecProvider<ChainSpec = rbuilder::chain::ChainSpec>
         + Clone
         + 'static,
     <P as ChainSpecProvider>::ChainSpec: EthereumHardforks,
@@ -228,6 +228,10 @@ where
 
     let blocklist_provider = base_config.blocklist_provider(cancel.clone()).await?;
 
+    // The chain spec must be the node's: rbuilder simulates and builds for the
+    // chain the node runs, regardless of what the rbuilder config says.
+    let node_chain_spec = reth_provider::ChainSpecProvider::chain_spec(&provider);
+
     let state_provider_factory = StateProviderFactoryFromRethProvider::new(
         provider,
         base_config.live_root_hash_config()?,
@@ -250,7 +254,8 @@ where
         config.live_builders()?,
         base_config.max_order_execution_duration_warning(),
     );
-    let live_builder = live_builder.with_builders(builders);
+    let mut live_builder = live_builder.with_builders(builders);
+    live_builder.chain_chain_spec = node_chain_spec;
 
     live_builder.connect_to_transaction_pool(pool).await?;
     live_builder

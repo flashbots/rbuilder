@@ -275,6 +275,71 @@ fn base_fee(ctx: &BlockBuildingContext) -> u64 {
 }
 
 #[cfg(test)]
+pub(crate) mod tests_helpers {
+    use super::*;
+    use crate::{
+        building::{builders::mock_block_building_helper::MockRootHasher, BlockBuildingContext},
+        live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
+        utils::Signer,
+    };
+    use alloy_primitives::{Address, U256};
+    use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEvent};
+    use alloy_rpc_types_engine::PayloadAttributes;
+    use std::sync::Arc;
+
+    /// BlockBuildingContext for block 1 on the arc localdev chain with a
+    /// parent extra_data encoded base fee of 12_345.
+    pub(crate) fn make_arc_ctx() -> (BlockBuildingContext, Signer) {
+        let chain_spec = chain::chain_spec_for_testing();
+        let mut parent = chain::inner_chain_spec(&chain_spec)
+            .sealed_genesis_header()
+            .header()
+            .clone();
+        parent.extra_data = encode_base_fee_to_bytes(12_345);
+        let parent_hash = parent.hash_slow();
+
+        let attributes = PayloadAttributesEvent {
+            version: "arc".to_string(),
+            data: PayloadAttributesData {
+                proposal_slot: 1,
+                parent_block_root: Default::default(),
+                parent_block_number: parent.number,
+                parent_block_hash: parent_hash,
+                proposer_index: 0,
+                payload_attributes: PayloadAttributes {
+                    timestamp: parent.timestamp + 1,
+                    prev_randao: Default::default(),
+                    suggested_fee_recipient: Address::random(),
+                    withdrawals: Some(vec![]),
+                    parent_beacon_block_root: Some(parent_hash),
+                },
+            },
+        };
+
+        let signer = Signer::random();
+        let ctx = BlockBuildingContext::from_attributes(
+            attributes,
+            &parent,
+            signer.clone(),
+            chain_spec,
+            Default::default(),
+            Some(55_000_000),
+            vec![],
+            None,
+            Arc::new(MockRootHasher {}),
+            0,
+            false,
+            true,
+            U256::ZERO,
+            Default::default(),
+            Arc::new(MempoolTxsDetector::new()),
+        )
+        .unwrap();
+        (ctx, signer)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
@@ -358,6 +423,7 @@ mod tests {
 
         assert_eq!(ctx.evm_env.block_env.basefee, 12_345);
         assert_eq!(ctx.evm_env.block_env.gas_limit, 55_000_000);
+        assert_eq!(ctx.evm_env.cfg_env.chain_id, 1337);
     }
 
     /// A plain value transfer through the rbuilder EVM factory must emit the
@@ -412,5 +478,54 @@ mod tests {
                 && log.data.data.as_ref().last() == Some(&7)),
             "expected EIP-7708 native transfer log, got: {logs:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod sim_repro_tests {
+    use super::tests_helpers::make_arc_ctx;
+    use crate::building::evm::EvmFactory as _;
+    use alloy_consensus::TxEip1559;
+    use alloy_primitives::{Address, TxKind, U256};
+    use revm::{
+        database::{CacheDB, EmptyDB},
+        state::AccountInfo,
+    };
+
+    /// Replicates the live simulation path: a signed EIP-1559 tx executed
+    /// through ctx.evm_factory with the ctx evm_env.
+    #[test]
+    fn signed_tx_executes_through_ctx_evm() {
+        let (ctx, signer) = make_arc_ctx();
+        let recipient = Address::random();
+
+        let tx = signer
+            .sign_tx(reth_primitives::Transaction::Eip1559(TxEip1559 {
+                chain_id: 1337,
+                nonce: 0,
+                gas_limit: 21_000,
+                max_fee_per_gas: 3_000_000_000,
+                max_priority_fee_per_gas: 1_000_000_000,
+                to: TxKind::Call(recipient),
+                value: U256::from(1),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            signer.address,
+            AccountInfo {
+                balance: U256::from(10).pow(U256::from(18)),
+                ..Default::default()
+            },
+        );
+
+        let mut evm = ctx.evm_factory.create_evm(&mut db, ctx.evm_env.clone());
+        let res = reth_evm::Evm::transact(&mut evm, &tx);
+        match res {
+            Ok(r) => assert!(r.result.is_success(), "tx failed: {:?}", r.result),
+            Err(err) => panic!("transact error: {err:?}"),
+        }
     }
 }

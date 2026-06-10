@@ -153,6 +153,8 @@ impl UnfinishedBlockBuildingSink for EnginePayloadSink {
             Err(err) => {
                 if err.is_critical() {
                     error!(?err, "Failed to finalize block for engine payload");
+                } else {
+                    tracing::debug!(?err, "Discarded block for engine payload");
                 }
                 return;
             }

@@ -18,9 +18,9 @@ error_storage_path = "/tmp/rbuilder.error.sqlite"
 # env: COINBASE_SECRET_KEY
 coinbase_secret_key = "env:COINBASE_SECRET_KEY"
 
-# chain is unused by arc-rbuilder itself (the node's --chain flag wins) but
-# must parse; use the same network here.
-chain = "arc-testnet"
+# arc-rbuilder always builds for the chain the node runs (--chain flag); this
+# value only needs to parse. Keep it matching the node anyway.
+chain = "arc-localdev"
 
 full_telemetry_server_port = 6060
 redacted_telemetry_server_port = 6061
@@ -35,6 +35,10 @@ ignore_cancellable_orders = true
 simulation_threads = 4
 
 live_builders = ["mp-ordering", "mgp-ordering"]
+
+# Required: sparse trie root hash (parallel impl currently disallowed).
+root_hash_use_sparse_trie = true
+root_hash_compare_sparse_trie = false
 
 [[builders]]
 name = "mgp-ordering"
