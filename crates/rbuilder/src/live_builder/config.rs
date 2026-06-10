@@ -660,7 +660,7 @@ where
 }
 
 impl Config {
-    fn live_builders(&self) -> eyre::Result<Vec<BuilderConfig>> {
+    pub fn live_builders(&self) -> eyre::Result<Vec<BuilderConfig>> {
         self.base_config
             .live_builders
             .iter()

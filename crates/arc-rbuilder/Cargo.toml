@@ -1,0 +1,56 @@
+[package]
+name = "arc-rbuilder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+rbuilder = { workspace = true, features = ["arc"] }
+rbuilder-config.workspace = true
+
+arc-evm.workspace = true
+arc-evm-node.workspace = true
+arc-execution-config.workspace = true
+arc-execution-payload.workspace = true
+arc-execution-txpool.workspace = true
+arc-execution-validation.workspace = true
+
+reth.workspace = true
+reth-cli-util.workspace = true
+reth-node-api.workspace = true
+reth-node-builder.workspace = true
+reth-payload-builder.workspace = true
+reth-basic-payload-builder.workspace = true
+reth-ethereum-engine-primitives.workspace = true
+reth-provider.workspace = true
+reth-transaction-pool.workspace = true
+reth-revm.workspace = true
+reth-evm.workspace = true
+reth-chainspec.workspace = true
+reth-node-ethereum.workspace = true
+alloy-consensus.workspace = true
+
+alloy-primitives.workspace = true
+alloy-rpc-types-beacon.workspace = true
+alloy-rpc-types-engine.workspace = true
+revm.workspace = true
+
+clap.workspace = true
+eyre.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }
+
+[features]
+jemalloc = []
+
+[[bin]]
+name = "arc-rbuilder"
+path = "src/main.rs"

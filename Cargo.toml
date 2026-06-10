@@ -16,6 +16,7 @@ members = [
     "crates/rbuilder-operator",
     "crates/rbuilder-rebalancer",
     "crates/reth-rbuilder",
+    "crates/arc-rbuilder",
     "crates/rbuilder/src/test_utils",
     "crates/rbuilder/src/telemetry/metrics_macros",
     "crates/eth-sparse-mpt",
@@ -27,6 +28,7 @@ default-members = [
     "crates/rbuilder",
     "crates/rbuilder-operator",
     "crates/reth-rbuilder",
+    "crates/arc-rbuilder",
     "crates/rbuilder-rebalancer",
     "crates/rbuilder-primitives",
     "crates/rbuilder-utils",
@@ -107,6 +109,8 @@ reth-execution-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v1
 reth-trie-db = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 reth-tasks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
+reth-node-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
+reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.11.3" }
 
 # compatible with reth v1.11.3 (d6324d63e27ef6b7c49cdc9b1977c1b808234c7b) dependencies
 revm = { version = "34.0.0", features = [
@@ -194,6 +198,7 @@ arc-evm-node = { path = "../../arc-node/crates/evm-node" }
 arc-execution-payload = { path = "../../arc-node/crates/execution-payload" }
 arc-execution-txpool = { path = "../../arc-node/crates/execution-txpool" }
 arc-shared = { path = "../../arc-node/crates/shared" }
+arc-execution-validation = { path = "../../arc-node/crates/execution-validation" }
 
 eth-sparse-mpt = { path = "crates/eth-sparse-mpt" }
 bid-scraper = { path = "crates/bid-scraper" }
