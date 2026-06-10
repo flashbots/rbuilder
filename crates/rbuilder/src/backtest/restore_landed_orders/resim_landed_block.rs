@@ -1,3 +1,4 @@
+use crate::provider::{StateProviderArc, SyncStateProvider};
 use crate::{
     building::{
         cached_reads::CachedDB, tracers::AccumulatorSimulationTracer, BlockBuildingContext,
@@ -16,7 +17,6 @@ use eyre::Context;
 use rbuilder_primitives::evm_inspector::SlotKey;
 use reth_chainspec::ChainSpec;
 use reth_primitives::{Receipt, Recovered, TransactionSigned};
-use reth_provider::StateProvider;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -69,8 +69,8 @@ where
 
     let mut local_ctx = ThreadBlockBuildingContext::default();
 
-    let state_provider: Arc<dyn StateProvider> =
-        Arc::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let state_provider: StateProviderArc =
+        SyncStateProvider::new_arc(provider.history_by_block_hash(ctx.attributes.parent)?);
     let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
     let mut partial_block = PartialBlock::new(true);
     let mut state = BlockState::new(cached);

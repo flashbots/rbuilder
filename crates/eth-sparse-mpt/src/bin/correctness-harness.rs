@@ -14,12 +14,16 @@ use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_provider::{
-    providers::{ConsistentDbView, OverlayStateProviderFactory, StaticFileProvider},
+    providers::{
+        ConsistentDbView, OverlayStateProviderFactory, RocksDBProvider, StaticFileProvider,
+        StaticFileProviderBuilder,
+    },
     BlockHashReader, BlockNumReader, BlockReader, ChainSpecProvider, HeaderProvider,
     ProviderFactory, TransactionVariant,
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_trie::TrieInput;
+use reth_trie_db::ChangesetCache;
 use reth_trie_parallel::root::ParallelStateRoot;
 use revm::database::BundleState;
 use std::{
@@ -347,13 +351,13 @@ fn calculate_reth_root(
     parent_hash: B256,
     outcome: &BundleState,
 ) -> Result<B256> {
-    let overlay = OverlayStateProviderFactory::new(factory.clone());
+    let overlay = OverlayStateProviderFactory::new(factory.clone(), ChangesetCache::new());
     let hasher = factory
         .history_by_block_hash(parent_hash)
         .with_context(|| format!("failed to open state provider at parent hash {parent_hash:?}"))?;
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let trie_input = TrieInput::from_state(hashed_post_state);
-    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze())
+    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze(), task_runtime())
         .incremental_root()
         .with_context(|| "parallel state root failed")
 }
@@ -403,24 +407,46 @@ fn open_provider_factory(
         .with_context(|| format!("failed to open reth db at {}", db_path.display()))?,
     );
 
-    let static_files =
-        StaticFileProvider::read_only(&static_files_path, false).with_context(|| {
-            format!(
-                "failed to open static files at {}",
-                static_files_path.display()
-            )
-        })?;
     let static_files = if let Some(blocks_per_file) = static_file_blocks_per_file {
-        static_files.with_custom_blocks_per_file(blocks_per_file)
+        StaticFileProviderBuilder::read_only(&static_files_path)
+            .with_blocks_per_file(blocks_per_file)
+            .build()
     } else {
-        static_files
-    };
+        StaticFileProvider::read_only(&static_files_path, false)
+    }
+    .with_context(|| {
+        format!(
+            "failed to open static files at {}",
+            static_files_path.display()
+        )
+    })?;
 
+    let rocksdb_provider = RocksDBProvider::builder(datadir.join("rocksdb"))
+        .with_default_tables()
+        .with_read_only(true)
+        .build()
+        .context("failed to open rocksdb provider")?;
     Ok(ProviderFactory::<NodeTypes>::new(
         db,
         chain_spec,
         static_files,
-    ))
+        rocksdb_provider,
+        task_runtime(),
+    )?)
+}
+
+/// Process-wide reth task runtime for parallel provider/trie I/O.
+fn task_runtime() -> reth_tasks::Runtime {
+    use reth_tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
+
+    static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            RuntimeBuilder::new(RuntimeConfig::default())
+                .build()
+                .expect("failed to build reth task runtime")
+        })
+        .clone()
 }
 
 fn parse_chain_spec(chain: &str) -> Result<Arc<ChainSpec>> {

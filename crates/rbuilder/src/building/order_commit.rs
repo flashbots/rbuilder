@@ -25,10 +25,21 @@ use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
     database::{states::bundle_state::BundleRetention, BundleState, State},
+    database_interface::bal::EvmDatabaseError,
     Database as _, DatabaseCommit,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+
+/// Flattens the [`EvmDatabaseError`] wrapper that revm's [`State`] adds on top of the
+/// underlying database error. rbuilder never sets up a BAL (Block Access List) so the
+/// `Bal` variant is not expected; if it ever happens we preserve it as [`ProviderError::Other`].
+pub fn unwrap_evm_db_error(err: EvmDatabaseError<ProviderError>) -> ProviderError {
+    match err {
+        EvmDatabaseError::Database(err) => err,
+        EvmDatabaseError::Bal(err) => ProviderError::other(err),
+    }
+}
 
 #[derive(Clone)]
 pub struct BlockState<DB> {
@@ -104,7 +115,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(unwrap_evm_db_error)?
             .map(|acc| acc.balance)
             .unwrap_or_default())
     }
@@ -113,7 +125,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(unwrap_evm_db_error)?
             .map(|acc| acc.nonce)
             .unwrap_or_default())
     }
@@ -122,7 +135,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(unwrap_evm_db_error)?
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
     }
@@ -433,6 +447,18 @@ pub enum CriticalCommitOrderError {
     /// This could happen if we can't fit a balance in a I256 (unlikely/impossible since the ETH total supply is several orders of magnitude bellow I256::max)
     #[error("BigIntConversionError error: {0}")]
     BigIntConversionError(#[from] alloy_primitives::BigIntConversionError),
+}
+
+impl From<EvmDatabaseError<ProviderError>> for CriticalCommitOrderError {
+    fn from(err: EvmDatabaseError<ProviderError>) -> Self {
+        Self::Reth(unwrap_evm_db_error(err))
+    }
+}
+
+impl From<EVMError<EvmDatabaseError<ProviderError>>> for CriticalCommitOrderError {
+    fn from(err: EVMError<EvmDatabaseError<ProviderError>>) -> Self {
+        Self::EVM(err.map_db_err(unwrap_evm_db_error))
+    }
 }
 
 /// For all funcs allow_tx_skip means:
@@ -1117,7 +1143,7 @@ fn execute_evm<Factory>(
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    db: impl Database<Error = ProviderError>,
+    db: impl Database<Error = EvmDatabaseError<ProviderError>>,
     blocklist: &HashSet<Address>,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
 where

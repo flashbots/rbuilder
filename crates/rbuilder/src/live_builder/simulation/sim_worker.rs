@@ -1,3 +1,4 @@
+use crate::provider::{StateProviderArc, SyncStateProvider};
 use crate::{
     building::{
         cached_reads::CachedDB,
@@ -9,7 +10,6 @@ use crate::{
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
-use reth_provider::StateProvider;
 use std::{
     sync::Arc,
     thread::sleep,
@@ -51,9 +51,9 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
-        let state_provider: Arc<dyn StateProvider> =
+        let state_provider: StateProviderArc =
             match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => Arc::from(state_provider),
+                Ok(state_provider) => SyncStateProvider::new_arc(state_provider),
                 Err(err) => {
                     error!(?err, "Error while getting state for block");
                     continue 'main;

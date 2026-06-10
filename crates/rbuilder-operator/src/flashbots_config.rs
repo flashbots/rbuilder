@@ -428,8 +428,9 @@ impl FlashbotsConfig {
             .with_password(config.password.value()?)
             .with_validation(false); // CRITICAL for U256 serialization.
 
-        let task_manager = rbuilder_utils::tasks::TaskManager::current();
-        let task_executor = task_manager.executor();
+        let task_executor = rbuilder_utils::tasks::Runtime::with_existing_handle(
+            tokio::runtime::Handle::current(),
+        )?;
 
         let disk_backup = DiskBackup::new(
             DiskBackupConfig::new()
@@ -441,10 +442,11 @@ impl FlashbotsConfig {
         )
         .expect("could not create disk backup");
 
-        // Task to forward the abort to the task_manager.
+        // Task to forward the abort to the task runtime.
+        let shutdown_executor = task_executor.clone();
         tokio::spawn(async move {
             abort_token.cancelled().await;
-            task_manager.graceful_shutdown();
+            shutdown_executor.graceful_shutdown();
         });
 
         Ok((client, task_executor, disk_backup))

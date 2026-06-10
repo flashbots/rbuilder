@@ -32,6 +32,25 @@ pub use provider_factory_reopen::{
     ProviderFactoryReopener, RootHasherImpl,
 };
 
+/// Process-wide reth task [`Runtime`](reth::tasks::Runtime) used for reth components that
+/// need one (e.g. `ProviderFactory`, `ParallelStateRoot`). Attaches to the ambient tokio
+/// runtime when first used inside one, otherwise builds a standalone runtime.
+pub fn reth_task_runtime() -> reth::tasks::Runtime {
+    use reth::tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
+    static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            let config = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => RuntimeConfig::with_existing_handle(handle),
+                Err(_) => RuntimeConfig::default(),
+            };
+            RuntimeBuilder::new(config)
+                .build()
+                .expect("failed to build reth task runtime")
+        })
+        .clone()
+}
+
 pub mod reconnect;
 
 mod tx_signer;
@@ -144,7 +163,7 @@ pub fn default_cfg_env(chain_spec: &ChainSpec, block_timestamp: u64, block_numbe
     let spec = revm_spec_by_timestamp_and_block_number(chain_spec, block_timestamp, block_number);
     CfgEnv::new()
         .with_chain_id(chain_spec.chain().id())
-        .with_spec(spec)
+        .with_spec_and_mainnet_gas_params(spec)
 }
 
 pub fn unix_timestamp_now() -> u64 {

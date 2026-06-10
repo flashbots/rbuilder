@@ -10,7 +10,7 @@ use crate::{
         NullPartialBlockForkExecutionTracer,
     },
     live_builder::order_input::mempool_txs_detector::MempoolTxsDetector,
-    provider::StateProviderFactory,
+    provider::{StateProviderFactory, SyncStateProvider},
     telemetry::{add_order_simulation_time, mark_order_pending_nonce},
     utils::NonceCache,
 };
@@ -20,7 +20,6 @@ use alloy_primitives::Address;
 use rand::seq::SliceRandom;
 use rbuilder_primitives::{Order, OrderId, SimulatedOrder};
 use reth_errors::ProviderError;
-use reth_provider::StateProvider;
 use std::{
     cmp::{max, min, Ordering},
     collections::hash_map::Entry,
@@ -349,7 +348,7 @@ where
 {
     let nonces = {
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(state.into())
+        NonceCache::new(SyncStateProvider::new_arc(state))
     };
     let mut sim_tree = SimTree::new(nonces);
 
@@ -365,7 +364,7 @@ where
 
     let mut sim_errors = Vec::new();
     let initial_provider =
-        Arc::<dyn StateProvider>::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+        SyncStateProvider::new_arc(provider.history_by_block_hash(ctx.attributes.parent)?);
     let mut state_for_sim = CachedDB::new(initial_provider, ctx.shared_cached_reads.clone());
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {

@@ -56,7 +56,7 @@ pub struct IpcStateProviderFactory {
     ipc_provider: RpcProvider,
 
     code_cache: Arc<DashMap<B256, Bytecode>>,
-    state_provider_by_hash: Arc<Cache<BlockHash, Arc<IpcStateProvider>>>,
+    state_provider_by_hash: Arc<Cache<BlockHash, IpcStateProvider>>,
 }
 
 impl IpcStateProviderFactory {
@@ -126,14 +126,14 @@ impl StateProviderFactory for IpcStateProviderFactory {
             return Ok(Box::new(state));
         }
 
-        let state = IpcStateProvider::into_boxed(
+        let state = IpcStateProvider::new(
             self.ipc_provider.clone(),
             block.into(),
             self.code_cache.clone(),
         );
 
-        self.state_provider_by_hash.insert(block, *state.clone());
-        Ok(state)
+        self.state_provider_by_hash.insert(block, state.clone());
+        Ok(Box::new(state))
     }
 
     /// Gets block header given block hash
@@ -197,13 +197,15 @@ pub struct IpcStateProvider {
     ipc_provider: RpcProvider,
     block_id: BlockId,
 
-    // Per block cache
-    block_hash_cache: DashMap<u64, BlockHash>,
+    // Per block cache. Arc'd so that clones of the provider share the same cache
+    // (reth removed the blanket `StateProvider` impl for `Arc<T>`, so we hand out
+    // cheap clones instead of `Arc<Self>`).
+    block_hash_cache: Arc<DashMap<u64, BlockHash>>,
     // Note: It's ok to cache Account (and Storage) even in case of None, this is because StateProvider gives the
     // state for some past block, so if account didn't exist the first time, it cannot magically
     // appear later on
-    account_cache: DashMap<Address, Option<Account>>,
-    storage_cache: DashMap<(Address, StorageKey), Option<StorageValue>>,
+    account_cache: Arc<DashMap<Address, Option<Account>>>,
+    storage_cache: Arc<DashMap<(Address, StorageKey), Option<StorageValue>>>,
 
     // Global cache (cache not related to specific block)
     code_cache: Arc<DashMap<B256, Bytecode>>,
@@ -222,22 +224,19 @@ impl IpcStateProvider {
 
             code_cache,
 
-            block_hash_cache: DashMap::new(),
-            storage_cache: DashMap::new(),
-            account_cache: DashMap::new(),
+            block_hash_cache: Arc::new(DashMap::new()),
+            storage_cache: Arc::new(DashMap::new()),
+            account_cache: Arc::new(DashMap::new()),
         }
     }
 
     /// Crates new instance of state provider on the heap
-    // Box::new(Arc::new(Self)) is required because StateProviderFactory returns Box<dyn StateProvider>
-    // Note: this is known clippy issue: https://github.com/rust-lang/rust-clippy/issues/7472
-    #[allow(clippy::redundant_allocation)]
     fn into_boxed(
         ipc_provider: RpcProvider,
         block_id: BlockId,
         code_cache: Arc<DashMap<B256, Bytecode>>,
-    ) -> Box<Arc<Self>> {
-        Box::new(Arc::new(Self::new(ipc_provider, block_id, code_cache)))
+    ) -> Box<Self> {
+        Box::new(Self::new(ipc_provider, block_id, code_cache))
     }
 }
 
@@ -285,6 +284,15 @@ impl StateProvider for IpcStateProvider {
         self.storage_cache.insert((account, storage_key), storage);
 
         Ok(storage)
+    }
+
+    /// Lookup by pre-hashed storage key is not possible over the plain-key RPC interface.
+    fn storage_by_hashed_key(
+        &self,
+        _address: Address,
+        _hashed_storage_key: StorageKey,
+    ) -> ProviderResult<Option<StorageValue>> {
+        unimplemented!()
     }
 }
 

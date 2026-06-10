@@ -1,6 +1,7 @@
 //! Caching layer for database, used to minimize disc access.
 //! The cache is shared between threads.
 
+use crate::provider::StateProviderArc;
 use alloy_primitives::{Address, B256, U256};
 use dashmap::DashMap;
 use reth::revm::database::StateProviderDatabase;
@@ -45,7 +46,7 @@ impl Drop for SharedCachedReads {
 /// Database that wraps a reth state provider with a shared read cache.
 #[derive(Clone)]
 pub struct CachedDB {
-    state_provider: Arc<dyn StateProvider>,
+    state_provider: StateProviderArc,
     shared_cache: Arc<SharedCachedReads>,
 }
 
@@ -56,10 +57,7 @@ impl std::fmt::Debug for CachedDB {
 }
 
 impl CachedDB {
-    pub fn new(
-        state_provider: Arc<dyn StateProvider>,
-        shared_cache: Arc<SharedCachedReads>,
-    ) -> Self {
+    pub fn new(state_provider: StateProviderArc, shared_cache: Arc<SharedCachedReads>) -> Self {
         Self {
             state_provider,
             shared_cache,

@@ -1,4 +1,4 @@
-use super::{evm::EvmFactory, BlockBuildingContext, BlockState};
+use super::{evm::EvmFactory, unwrap_evm_db_error, BlockBuildingContext, BlockState};
 use crate::{
     building::BlockSpace,
     utils::{constants::BASE_TX_GAS, Signer},
@@ -11,7 +11,10 @@ use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
 use reth_evm::Evm;
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
-use revm::context::result::{EVMError, ExecutionResult};
+use revm::{
+    context::result::{EVMError, ExecutionResult},
+    database_interface::bal::EvmDatabaseError,
+};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,
@@ -44,6 +47,12 @@ pub enum PayoutTxErr {
     SignError(#[from] secp256k1::Error),
     #[error("EVM error: {0}")]
     EvmError(#[from] EVMError<ProviderError>),
+}
+
+impl From<EVMError<EvmDatabaseError<ProviderError>>> for PayoutTxErr {
+    fn from(err: EVMError<EvmDatabaseError<ProviderError>>) -> Self {
+        Self::EvmError(err.map_db_err(unwrap_evm_db_error))
+    }
 }
 
 impl PartialEq for PayoutTxErr {
@@ -210,9 +219,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::building::{
-        builders::mock_block_building_helper::MockRootHasher,
-        cached_reads::{CachedDB, SharedCachedReads},
+    use crate::{
+        building::{
+            builders::mock_block_building_helper::MockRootHasher,
+            cached_reads::{CachedDB, SharedCachedReads},
+        },
+        provider::{StateProviderArc, SyncStateProvider},
     };
     use alloy_eips::eip1559::INITIAL_BASE_FEE;
     use alloy_primitives::B256;
@@ -220,7 +232,7 @@ mod tests {
     use reth_chainspec::{EthereumHardfork, MAINNET};
     use reth_db::{tables, transaction::DbTxMut};
     use reth_primitives::Account;
-    use reth_provider::{test_utils::create_test_provider_factory_with_chain_spec, StateProvider};
+    use reth_provider::test_utils::create_test_provider_factory_with_chain_spec;
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
@@ -270,7 +282,8 @@ mod tests {
             false,
             U256::ZERO,
         );
-        let state_provider: Arc<dyn StateProvider> = Arc::from(provider_factory.latest().unwrap());
+        let state_provider: StateProviderArc =
+            SyncStateProvider::new_arc(provider_factory.latest().unwrap());
         let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
         let mut state = BlockState::new(cached);
 

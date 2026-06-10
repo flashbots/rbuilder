@@ -7,6 +7,7 @@ pub mod order_intake_store;
 pub mod results_aggregator;
 pub mod simulation_cache;
 pub mod task;
+use crate::provider::{StateProviderArc, SyncStateProvider};
 use alloy_primitives::I256;
 pub use groups::*;
 
@@ -17,7 +18,6 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::{
@@ -123,10 +123,11 @@ where
         let results_aggregator =
             ResultsAggregator::new(group_result_receiver, Arc::clone(&best_results));
 
-        let block_state = input
-            .provider
-            .history_by_block_hash(input.ctx.attributes.parent)?
-            .into();
+        let block_state = SyncStateProvider::new_arc(
+            input
+                .provider
+                .history_by_block_hash(input.ctx.attributes.parent)?,
+        );
 
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
@@ -329,10 +330,11 @@ where
 
     let setup_duration = setup_start.elapsed();
 
-    let block_state: Arc<dyn StateProvider> = input
-        .provider
-        .history_by_block_hash(input.ctx.attributes.parent)?
-        .into();
+    let block_state: StateProviderArc = SyncStateProvider::new_arc(
+        input
+            .provider
+            .history_by_block_hash(input.ctx.attributes.parent)?,
+    );
 
     // Group processing
     let processing_start = Instant::now();

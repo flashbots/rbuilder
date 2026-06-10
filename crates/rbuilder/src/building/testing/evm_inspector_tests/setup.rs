@@ -4,13 +4,12 @@ use crate::building::{
     testing::test_chain_state::{BlockArgs, NamedAddr, TestChainState, TestContracts, TxArgs},
     BlockState,
 };
+use crate::provider::{StateProviderArc, SyncStateProvider};
 
 use alloy_primitives::Address;
 use rbuilder_primitives::evm_inspector::{RBuilderEVMInspector, UsedStateTrace};
 use reth_evm::Evm;
 use reth_primitives::{Recovered, TransactionSigned};
-use reth_provider::StateProvider;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct TestSetup {
@@ -91,8 +90,8 @@ impl TestSetup {
         let mut inspector = RBuilderEVMInspector::new(&tx, Some(&mut used_state_trace));
 
         // block state
-        let state_provider: Arc<dyn StateProvider> =
-            Arc::from(self.test_chain.provider_factory().latest()?);
+        let state_provider: StateProviderArc =
+            SyncStateProvider::new_arc(self.test_chain.provider_factory().latest()?);
         let cached = CachedDB::new(
             state_provider,
             self.test_chain

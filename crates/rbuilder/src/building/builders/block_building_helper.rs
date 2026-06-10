@@ -1,8 +1,7 @@
+use crate::provider::StateProviderArc;
 use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
-use reth_provider::StateProvider;
 use std::{
     cmp::max,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
@@ -215,7 +214,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     pub fn new(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: StateProviderArc,
         building_ctx: BlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
@@ -251,7 +250,7 @@ impl<
     pub fn new_with_execution_tracer(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: StateProviderArc,
         building_ctx: BlockBuildingContext,
         builder_name: String,
         discard_txs: bool,

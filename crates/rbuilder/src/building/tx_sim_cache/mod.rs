@@ -11,7 +11,9 @@ use itertools::Itertools;
 use rbuilder_primitives::evm_inspector::UsedStateTrace;
 use result_store::{ActionResult, ExecutionResultStore, NextAction};
 use reth_errors::ProviderError;
-use revm::{context::result::ResultAndState, state::AccountInfo};
+use revm::{
+    context::result::ResultAndState, database_interface::bal::EvmDatabaseError, state::AccountInfo,
+};
 use tracing::info;
 
 use crate::utils::signed_uint_delta;
@@ -223,7 +225,7 @@ impl TxExecutionCache {
 
     pub fn get_cached_result(
         &self,
-        mut db: impl Database<Error = ProviderError>,
+        mut db: impl Database<Error = EvmDatabaseError<ProviderError>>,
         tx_hash: &B256,
         coinbase: &Address,
     ) -> Result<CachingResult, CriticalCommitOrderError> {
