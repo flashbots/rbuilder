@@ -1,4 +1,4 @@
-use crate::utils::{fast_hash, hash_map_with_capacity, HashMap};
+use crate::utils::{convert_reth_nybbles_to_nibbles, fast_hash, hash_map_with_capacity, HashMap};
 use alloy_primitives::{keccak256, Bytes, B256};
 use alloy_rlp::Decodable;
 use alloy_trie::nodes::{
@@ -89,7 +89,7 @@ pub struct FixedLeafNode {
 impl From<AlloyLeafNode> for FixedLeafNode {
     fn from(alloy_leaf_node: AlloyLeafNode) -> Self {
         Self {
-            key: alloy_leaf_node.key,
+            key: convert_reth_nybbles_to_nibbles(alloy_leaf_node.key),
             value: alloy_leaf_node.value.into(),
         }
     }
@@ -133,7 +133,7 @@ pub struct FixedExtensionNode {
 impl From<AlloyExtensionNode> for FixedExtensionNode {
     fn from(alloy_extension_node: AlloyExtensionNode) -> Self {
         Self {
-            key: alloy_extension_node.key,
+            key: convert_reth_nybbles_to_nibbles(alloy_extension_node.key),
             child: Bytes::copy_from_slice(alloy_extension_node.child.as_ref()),
         }
     }

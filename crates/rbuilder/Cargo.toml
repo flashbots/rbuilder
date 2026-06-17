@@ -28,16 +28,17 @@ reth-db.workspace = true
 reth-errors.workspace = true
 reth-payload-builder.workspace = true
 reth-trie.workspace = true
-reth-trie-parallel.workspace = true
 reth-trie-db.workspace = true
+reth-trie-parallel.workspace = true
 reth-node-api.workspace = true
 reth-node-core.workspace = true
-reth-primitives.workspace = true
+reth-ethereum-primitives.workspace = true
 reth-primitives-traits.workspace = true
 reth-provider.workspace = true
 reth-chainspec.workspace = true
 reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
+reth-tasks.workspace = true
 revm.workspace = true
 reth-node-ethereum.workspace = true
 
@@ -82,6 +83,7 @@ time.workspace = true
 bigdecimal = "0.4.1"
 mempool-dumpster = "0.1.1"
 itertools = "0.11.0"
+nybbles = { version = "0.4", features = ["serde"] }
 clap.workspace = true
 priority-queue = "2.0.3"
 secp256k1 = { workspace = true, features = [

@@ -19,8 +19,8 @@ use rbuilder_primitives::{
 };
 use reth::consensus_common::validation::MAX_RLP_BLOCK_SIZE;
 use reth_errors::ProviderError;
+use reth_ethereum_primitives::Receipt;
 use reth_evm::{Evm, EvmEnv};
-use reth_primitives::Receipt;
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
@@ -1147,9 +1147,10 @@ where
             EVMError::Transaction(tx_err) => {
                 return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
             }
-            EVMError::Database(_) | EVMError::Header(_) | EVMError::Custom(_) => {
-                return Err(err.into())
-            }
+            EVMError::Database(_)
+            | EVMError::Header(_)
+            | EVMError::Custom(_)
+            | EVMError::CustomAny(_) => return Err(err.into()),
         },
     };
     drop(evm);

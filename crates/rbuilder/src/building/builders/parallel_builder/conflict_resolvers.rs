@@ -458,7 +458,8 @@ mod tests {
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
     use reth::primitives::TransactionSigned;
-    use reth_primitives::{Recovered, Transaction};
+    use reth_ethereum_primitives::Transaction;
+    use reth_primitives_traits::Recovered;
     use uuid::Uuid;
 
     use super::*;

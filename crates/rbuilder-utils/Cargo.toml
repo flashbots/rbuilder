@@ -9,8 +9,8 @@ repository.workspace = true
 exclude.workspace = true
 
 [dependencies]
-reth-tasks = { git = "https://github.com/paradigmxyz/reth", rev = "d6324d63e27ef6b7c49cdc9b1977c1b808234c7b" }
 reth-provider.workspace = true
+reth-tasks.workspace = true
 
 # misc
 tracing.workspace = true

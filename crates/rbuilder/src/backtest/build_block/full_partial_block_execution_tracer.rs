@@ -276,27 +276,20 @@ impl PartialBlockForkExecutionTracer for FullPartialBlockExecutionTracer {
             Ok(Ok(tx_ok)) => match tx_ok.exec_result {
                 revm::context::result::ExecutionResult::Success {
                     reason: _,
-                    gas_used: _,
-                    gas_refunded: _,
                     logs: _,
                     output: _,
+                    ..
                 } => (
                     SimpleTxExecutionResult::OkSuccess,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,
                 ),
-                revm::context::result::ExecutionResult::Revert {
-                    gas_used: _,
-                    output: _,
-                } => (
+                revm::context::result::ExecutionResult::Revert { output: _, .. } => (
                     SimpleTxExecutionResult::OkRevert,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,
                 ),
-                revm::context::result::ExecutionResult::Halt {
-                    reason: _,
-                    gas_used: _,
-                } => (
+                revm::context::result::ExecutionResult::Halt { reason: _, .. } => (
                     SimpleTxExecutionResult::OkHalt,
                     tx_ok.tx_info.coinbase_profit,
                     tx_ok.tx_info.space_used.gas,

@@ -84,12 +84,13 @@ impl EvmFactory for EthCachedEvmFactory {
     where
         DB: Database<Error: Send + Sync + 'static>,
     {
+        let spec = env.cfg_env.spec;
         let evm = self
             .evm_factory
             .create_evm(db, env)
             .into_inner()
             .with_precompiles(WrappedPrecompile::new(
-                EthPrecompiles::default(),
+                EthPrecompiles::new(spec),
                 self.cache.clone(),
             ));
 

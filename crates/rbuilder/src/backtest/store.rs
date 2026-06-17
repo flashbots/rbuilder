@@ -698,7 +698,7 @@ mod test {
         serialize::{RawBundle, RawBundleMetadata, RawTx},
         BundleReplacementKey, LAST_BUNDLE_VERSION,
     };
-    use reth_primitives::Recovered;
+    use reth_primitives_traits::Recovered;
     use time::OffsetDateTime;
     use uuid::uuid;
 
@@ -856,6 +856,7 @@ mod test {
             block_number: Some(4),
             transaction_index: Some(5),
             effective_gas_price: Some(7),
+            block_timestamp: Some(8),
         }
     }
 }

@@ -42,18 +42,13 @@ use rbuilder_primitives::{
     mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::{
-    payload::PayloadId,
-    primitives::{Block, SealedBlock},
-};
+use reth::payload::PayloadId;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
+use reth_ethereum_primitives::{Block, BlockBody};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
-use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
-use reth_payload_builder::EthPayloadBuilderAttributes;
-use reth_primitives::BlockBody;
-use reth_primitives_traits::{proofs, Block as _};
+use reth_primitives_traits::{proofs, Block as _, SealedBlock};
 use revm::{
     context_interface::result::InvalidTransaction,
     database::{states::bundle_state::BundleRetention, DatabaseCommitExt as _},
@@ -101,6 +96,35 @@ pub use conflict::*;
 
 /// Estimated overhead for the whole block header rlp length
 const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
+
+#[derive(Debug, Clone)]
+pub struct EthPayloadBuilderAttributes {
+    pub id: PayloadId,
+    pub parent: B256,
+    pub timestamp: u64,
+    pub suggested_fee_recipient: Address,
+    pub prev_randao: B256,
+    pub withdrawals: Withdrawals,
+    pub parent_beacon_block_root: Option<B256>,
+}
+
+impl EthPayloadBuilderAttributes {
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+
+    pub fn suggested_fee_recipient(&self) -> Address {
+        self.suggested_fee_recipient
+    }
+
+    pub fn prev_randao(&self) -> B256 {
+        self.prev_randao
+    }
+
+    pub fn parent_beacon_block_root(&self) -> Option<B256> {
+        self.parent_beacon_block_root
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
@@ -151,12 +175,16 @@ impl BlockBuildingContext {
         adjustment_fee_payers: ahash::HashSet<Address>,
         mempool_tx_detector: Arc<MempoolTxsDetector>,
     ) -> Option<BlockBuildingContext> {
-        let attributes = EthPayloadBuilderAttributes::try_new(
-            attributes.data.parent_block_hash,
-            attributes.data.payload_attributes.clone(),
-            EngineApiMessageVersion::default() as u8,
-        )
-        .expect("PayloadBuilderAttributes::try_new");
+        let payload_attributes = attributes.data.payload_attributes.clone();
+        let attributes = EthPayloadBuilderAttributes {
+            id: PayloadId::new([0u8; 8]),
+            parent: attributes.data.parent_block_hash,
+            timestamp: payload_attributes.timestamp,
+            suggested_fee_recipient: payload_attributes.suggested_fee_recipient,
+            prev_randao: payload_attributes.prev_randao,
+            withdrawals: Withdrawals::new(payload_attributes.withdrawals.unwrap_or_default()),
+            parent_beacon_block_root: payload_attributes.parent_beacon_block_root,
+        };
         let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
         let gas_limit = calculate_block_gas_limit(
             parent.gas_limit,
@@ -174,7 +202,8 @@ impl BlockBuildingContext {
                     gas_limit,
                     withdrawals: Some(attributes.withdrawals.clone()),
                     parent_beacon_block_root: attributes.parent_beacon_block_root,
-                    extra_data: extra_data.clone().into(),
+                    extra_data: Bytes::new(),
+                    slot_number: None,
                 },
             )
             .ok()?;
@@ -610,7 +639,7 @@ impl ExecutionError {
 
 pub struct FinalizeResult {
     /// Sealed block.
-    pub sealed_block: SealedBlock,
+    pub sealed_block: SealedBlock<Block>,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
@@ -1108,6 +1137,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             blob_gas_used,
             excess_blob_gas,
             requests_hash,
+            block_access_list_hash: None,
+            slot_number: None,
         };
 
         let withdrawals = ctx

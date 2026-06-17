@@ -68,7 +68,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
-            StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
+            StaticFileProvider::read_only(static_files_path.as_path()).unwrap(),
             open_rocksdb_read_only(rocksdb_path.as_path())?,
             super::reth_task_runtime(),
         )?;
@@ -131,7 +131,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                 *provider_factory = ProviderFactory::new(
                     provider_factory.db_ref().clone(),
                     self.chain_spec.clone(),
-                    StaticFileProvider::read_only(reopen_paths.static_files_path.as_path(), true)
+                    StaticFileProvider::read_only(reopen_paths.static_files_path.as_path())
                         .unwrap(),
                     open_rocksdb_read_only(reopen_paths.rocksdb_path.as_path())?,
                     super::reth_task_runtime(),
@@ -287,6 +287,7 @@ pub struct RootHasherImpl<T, HasherType> {
     hasher: HasherType,
     sparse_trie_shared_cache: SparseTrieSharedCache,
     config: RootHashContext,
+    runtime: reth_tasks::Runtime,
 }
 
 impl<T, HasherType> RootHasherImpl<T, HasherType> {
@@ -307,6 +308,7 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
             hasher,
             config,
             sparse_trie_shared_cache,
+            runtime: super::reth_task_runtime(),
         }
     }
 }
@@ -321,6 +323,7 @@ where
                           + ChangeSetReader
                           + StorageChangeSetReader
                           + DBProvider
+                          + BlockNumReader
                           + StorageSettingsCache,
         > + Send
         + Sync
@@ -369,6 +372,7 @@ where
             &self.sparse_trie_shared_cache,
             &mut local_ctx.root_hash_calculator,
             &self.config,
+            self.runtime.clone(),
         )
     }
 }

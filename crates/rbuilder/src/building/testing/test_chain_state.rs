@@ -16,15 +16,14 @@ use alloy_rpc_types_beacon::events::{PayloadAttributesData, PayloadAttributesEve
 use eth_sparse_mpt::ETHSpareMPTVersion::V2;
 use lazy_static::lazy_static;
 use reth::{
-    primitives::{Account, BlockBody, Bytecode},
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
 use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_errors::ProviderResult;
-use reth_primitives::{Recovered, TransactionSigned};
-use reth_primitives_traits::Block as _;
+use reth_ethereum_primitives::{BlockBody, TransactionSigned};
+use reth_primitives_traits::{Account, Block as _, Bytecode, Recovered};
 use reth_provider::{
     test_utils::{create_test_provider_factory, MockNodeTypesWithDB},
     BlockWriter,
@@ -384,6 +383,7 @@ impl TestBlockContextBuilder {
                         suggested_fee_recipient: self.suggested_fee_recipient,
                         withdrawals: self.withdrawals,
                         parent_beacon_block_root: None,
+                        slot_number: None,
                     },
                 },
             },
@@ -409,6 +409,8 @@ impl TestBlockContextBuilder {
                 parent_beacon_block_root: None,
                 extra_data: Default::default(),
                 requests_hash: Default::default(),
+                block_access_list_hash: None,
+                slot_number: None,
             },
             self.builder_signer,
             self.chain_spec,

@@ -102,6 +102,7 @@ impl TestDataGenerator {
                 suggested_fee_recipient: self.create_address(),
                 withdrawals: None,
                 parent_beacon_block_root: Some(self.create_hash()),
+                slot_number: None,
             },
         }
     }

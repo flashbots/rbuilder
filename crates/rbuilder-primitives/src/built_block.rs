@@ -21,7 +21,8 @@ use alloy_rpc_types_engine::{
     ExecutionPayloadV3,
 };
 use reth_chainspec::{ChainSpec, EthereumHardforks};
-use reth_primitives::SealedBlock;
+use reth_ethereum_primitives::Block;
+use reth_primitives_traits::SealedBlock;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -39,6 +40,9 @@ impl SignedBuiltBlock {
         match self.execution_payload {
             ExecutionPayload::V1(_v1) => {
                 eyre::bail!("v1 payloads are not supported");
+            }
+            ExecutionPayload::V4(_v4) => {
+                eyre::bail!("v4 payloads are not supported");
             }
             ExecutionPayload::V2(v2) => {
                 Ok(AlloySubmitBlockRequest::Capella(SignedBidSubmissionV2 {
@@ -155,7 +159,7 @@ fn marshall_txs_blobs_sidecars_v2(
 pub fn block_to_execution_payload(
     chain_spec: &ChainSpec,
     attrs: &PayloadAttributesData,
-    sealed_block: &SealedBlock,
+    sealed_block: &SealedBlock<Block>,
 ) -> ExecutionPayload {
     let transactions = sealed_block
         .body()

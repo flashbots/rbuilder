@@ -31,8 +31,8 @@ use reth_chainspec::ChainSpec;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
-use reth_primitives::StaticFileSegment;
 use reth_provider::StaticFileProviderFactory;
+use reth_provider::StaticFileSegment;
 use serde::{Deserialize, Deserializer};
 use serde_with::serde_as;
 use std::{

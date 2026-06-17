@@ -41,10 +41,7 @@ pub(crate) fn reth_task_runtime() -> Runtime {
     static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
     RUNTIME
         .get_or_init(|| {
-            let config = match tokio::runtime::Handle::try_current() {
-                Ok(handle) => RuntimeConfig::with_existing_handle(handle),
-                Err(_) => RuntimeConfig::default(),
-            };
+            let config = RuntimeConfig::default();
             // Invariant: building the process-wide task runtime is a startup operation. If it
             // fails the builder cannot compute state roots or open the provider factory, so there
             // is no meaningful way to continue.

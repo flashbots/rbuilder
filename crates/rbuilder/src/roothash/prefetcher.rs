@@ -5,7 +5,7 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::Address;
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
-use reth_provider::{BlockReader, DatabaseProviderFactory};
+use reth_provider::{BlockReader, DatabaseProviderFactory, StorageSettingsCache};
 use tracing::{error, trace};
 
 use crate::{
@@ -36,7 +36,7 @@ pub fn run_trie_prefetcher<P>(
     provider: P,
     simulated_orders: mpsc::Receiver<SimulatedOrderCommand>,
 ) where
-    P: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync + Clone,
+    P: DatabaseProviderFactory<Provider: BlockReader + StorageSettingsCache> + Send + Sync + Clone,
 {
     let consistent_db_view = ConsistentDbView::new(
         provider,

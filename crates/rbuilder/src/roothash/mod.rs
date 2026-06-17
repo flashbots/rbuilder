@@ -3,15 +3,18 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
+use reth_ethereum_primitives::EthPrimitives;
 use reth_provider::{
-    providers::OverlayStateProviderFactory, BlockReader, ChangeSetReader, DBProvider,
-    DatabaseProviderFactory, HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader,
-    StorageChangeSetReader, StorageSettingsCache,
+    providers::{OverlayBuilder, OverlayStateProviderFactory},
+    BlockNumReader, BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory,
+    HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader, StorageChangeSetReader,
+    StorageSettingsCache,
 };
 use reth_trie::TrieInput;
 use reth_trie_db::ChangesetCache;
 use reth_trie_parallel::root::{ParallelStateRoot, ParallelStateRootError};
 use revm::database::BundleState;
+use std::sync::Arc;
 use tracing::trace;
 
 pub use prefetcher::run_trie_prefetcher;
@@ -82,15 +85,8 @@ pub fn calculate_account_proofs<P>(
     config: &RootHashContext,
 ) -> Result<utils::HashMap<Address, Vec<Bytes>>, RootHashError>
 where
-    P: DatabaseProviderFactory<
-            Provider: BlockReader
-                          + StageCheckpointReader
-                          + PruneCheckpointReader
-                          + ChangeSetReader
-                          + StorageChangeSetReader
-                          + DBProvider
-                          + StorageSettingsCache,
-        > + Send
+    P: DatabaseProviderFactory<Provider: BlockReader + StorageSettingsCache>
+        + Send
         + Sync
         + Clone
         + 'static,
@@ -124,32 +120,35 @@ where
 fn calculate_parallel_root_hash<P, HasherType>(
     hasher: &HasherType,
     outcome: &BundleState,
+    parent_num_hash: BlockNumHash,
     provider: P,
+    runtime: reth_tasks::Runtime,
 ) -> Result<B256, ParallelStateRootError>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
                           + StageCheckpointReader
                           + PruneCheckpointReader
+                          + DBProvider
+                          + BlockNumReader
                           + ChangeSetReader
                           + StorageChangeSetReader
-                          + DBProvider
                           + StorageSettingsCache,
         > + Send
         + Sync
         + Clone
         + 'static,
 {
-    let overlay = OverlayStateProviderFactory::new(provider, ChangesetCache::new());
     let hashed_post_state = hasher.hashed_post_state(outcome);
-    let parallel_root_calculator = ParallelStateRoot::new(
-        overlay,
-        TrieInput::from_state(hashed_post_state)
-            .prefix_sets
-            .freeze(),
-        crate::utils::reth_task_runtime(),
-    );
+    let prefix_sets = TrieInput::from_state(hashed_post_state.clone())
+        .prefix_sets
+        .freeze();
+    let overlay_builder =
+        OverlayBuilder::<EthPrimitives>::new(parent_num_hash.hash, ChangesetCache::new())
+            .with_hashed_state_overlay(Some(Arc::new(hashed_post_state.into_sorted())));
+    let overlay = OverlayStateProviderFactory::new(provider, overlay_builder);
+    let parallel_root_calculator = ParallelStateRoot::new(overlay, prefix_sets, runtime);
     parallel_root_calculator.incremental_root()
 }
 
@@ -163,16 +162,18 @@ pub fn calculate_state_root<P, HasherType>(
     shared_cache: &SparseTrieSharedCache,
     local_cache: &mut SparseTrieLocalCache,
     config: &RootHashContext,
+    runtime: reth_tasks::Runtime,
 ) -> Result<B256, RootHashError>
 where
-    HasherType: HashedPostStateProvider + Send + Sync,
+    HasherType: HashedPostStateProvider + Sync,
     P: DatabaseProviderFactory<
             Provider: BlockReader
                           + StageCheckpointReader
                           + PruneCheckpointReader
+                          + DBProvider
+                          + BlockNumReader
                           + ChangeSetReader
                           + StorageChangeSetReader
-                          + DBProvider
                           + StorageSettingsCache,
         > + Send
         + Sync
@@ -193,11 +194,25 @@ where
         if let Some(thread_pool) = &config.thread_pool {
             thread_pool
                 .rayon_pool
-                .install(|| calculate_parallel_root_hash(hasher, outcome, provider.clone()))
+                .install(|| {
+                    calculate_parallel_root_hash(
+                        hasher,
+                        outcome,
+                        parent_num_hash,
+                        provider.clone(),
+                        runtime.clone(),
+                    )
+                })
                 .map_err(|err| RootHashError::Other(err.into()))?
         } else {
-            calculate_parallel_root_hash(hasher, outcome, provider.clone())
-                .map_err(|err| RootHashError::Other(err.into()))?
+            calculate_parallel_root_hash(
+                hasher,
+                outcome,
+                parent_num_hash,
+                provider.clone(),
+                runtime.clone(),
+            )
+            .map_err(|err| RootHashError::Other(err.into()))?
         }
     } else {
         B256::ZERO
@@ -225,8 +240,14 @@ where
             }
         }
     } else {
-        calculate_parallel_root_hash(hasher, outcome, provider.clone())
-            .map_err(|err| RootHashError::Other(err.into()))?
+        calculate_parallel_root_hash(
+            hasher,
+            outcome,
+            parent_num_hash,
+            provider.clone(),
+            runtime.clone(),
+        )
+        .map_err(|err| RootHashError::Other(err.into()))?
     };
 
     if config.compare_sparse_trie_output && reference_root_hash != root {

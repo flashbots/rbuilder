@@ -24,7 +24,6 @@ revm-inspectors.workspace = true
 # reth
 reth-chainspec.workspace = true
 reth-primitives-traits.workspace = true
-reth-primitives.workspace = true
 reth-ethereum-primitives.workspace = true
 reth-transaction-pool.workspace = true
 

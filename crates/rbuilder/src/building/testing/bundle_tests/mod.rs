@@ -1,7 +1,7 @@
 pub mod setup;
 
 use alloy_primitives::{Address, Bytes, U256};
-use reth_primitives::Bytecode;
+use reth_primitives_traits::Bytecode;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
