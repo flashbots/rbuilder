@@ -226,7 +226,7 @@ mod tests {
     use reth_chainspec::{EthereumHardfork, MAINNET};
     use reth_db::{tables, transaction::DbTxMut};
     use reth_primitives::Account;
-    use reth_provider::{test_utils::create_test_provider_factory_with_chain_spec, StateProvider};
+    use reth_provider::test_utils::create_test_provider_factory_with_chain_spec;
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
@@ -276,9 +276,10 @@ mod tests {
             false,
             U256::ZERO,
         );
-        let state_provider: Arc<dyn StateProvider + Send + Sync> =
-            crate::provider::shared_state_provider(provider_factory.latest().unwrap());
-        let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
+        let cached = CachedDB::new(
+            provider_factory.latest().unwrap(),
+            Arc::new(SharedCachedReads::default()),
+        );
         let mut state = BlockState::new(cached);
 
         let estimate_result =

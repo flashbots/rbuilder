@@ -4,14 +4,13 @@ use super::{
 };
 use ahash::HashMap;
 use alloy_primitives::utils::format_ether;
-use reth_provider::StateProvider;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
 use tokio_util::sync::CancellationToken;
-use tracing::{info_span, trace};
+use tracing::{error, info_span, trace};
 
 use crate::{
     building::{
@@ -24,6 +23,7 @@ use crate::{
         BlockBuildingContext, ThreadBlockBuildingContext,
     },
     live_builder::block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
+    provider::StateProviderSource,
     telemetry::mark_builder_considers_order,
     utils::elapsed_ms,
 };
@@ -31,7 +31,7 @@ use rbuilder_primitives::order_statistics::OrderStatistics;
 
 /// Assembles block building results from the best orderings of order groups.
 pub struct BlockBuildingResultAssembler {
-    state: Arc<dyn StateProvider + Send + Sync>,
+    source: StateProviderSource,
     ctx: BlockBuildingContext,
     pub local_ctx: ThreadBlockBuildingContext,
     cancellation_token: CancellationToken,
@@ -58,7 +58,7 @@ impl BlockBuildingResultAssembler {
     pub fn new(
         config: &ParallelBuilderConfig,
         best_results: Arc<BestResults>,
-        state: Arc<dyn StateProvider + Send + Sync>,
+        source: StateProviderSource,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         builder_name: String,
@@ -67,7 +67,7 @@ impl BlockBuildingResultAssembler {
         max_order_execution_duration_warning: Option<Duration>,
     ) -> Self {
         Self {
-            state,
+            source,
             ctx,
             local_ctx: Default::default(),
             cancellation_token,
@@ -153,7 +153,9 @@ impl BlockBuildingResultAssembler {
 
                     if let Some(sink) = &self.sink {
                         if let Ok(new_block) = BiddableUnfinishedBlock::new(new_block) {
-                            sink.new_block(new_block);
+                            if let Err(err) = sink.new_block(new_block) {
+                                error!(?err, "Failed to submit unfinished block");
+                            }
                         }
                     }
                 }
@@ -189,7 +191,7 @@ impl BlockBuildingResultAssembler {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
             0,
-            self.state.clone(),
+            self.source.clone(),
             self.ctx.clone(),
             self.builder_name.clone(),
             self.discard_txs,
@@ -271,7 +273,7 @@ impl BlockBuildingResultAssembler {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new(
             self.built_block_id_source.get_new_id(),
             0,
-            self.state.clone(),
+            self.source.clone(),
             self.ctx.clone(),
             String::from("backtest_builder"),
             self.discard_txs,

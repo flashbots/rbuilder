@@ -151,7 +151,7 @@ where
                             return;
                         }
                     };
-                    NonceCache::new(crate::provider::shared_state_provider(state))
+                    NonceCache::new(state)
                 };
 
                 let sim_tree = SimTree::new(nonces);

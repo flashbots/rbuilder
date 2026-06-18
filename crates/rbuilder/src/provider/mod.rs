@@ -9,32 +9,33 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::utils::{HashMap, HashSet};
 use reth_errors::ProviderResult;
-use reth_provider::{StateProvider, StateProviderBox};
+use reth_provider::StateProviderBox;
 use revm::database::BundleState;
 
-/// Shared, thread-safe state provider handle used across building threads.
+/// Opens a [`StateProviderBox`] for a fixed parent block from a shared [`StateProviderFactory`].
 ///
-/// reth's [`StateProviderBox`] is `Box<dyn StateProvider + Send>`: reth relaxed the `Sync` bound
-/// on the trait object to accommodate provider types that are not `Sync`. rbuilder shares a single
-/// provider read-only across building (rayon) threads, which additionally requires `Sync`.
-pub type SharedStateProvider = Arc<dyn StateProvider + Send + Sync>;
+/// This is the unit shared across building threads instead of a single already-opened provider:
+/// the factory handle and the block id are `Send + Sync`, so the source is too, and each consumer
+/// opens its own `Send`-only provider on demand. Pairing the factory with the parent block also
+/// removes the class of bugs where a provider is opened for the wrong block.
+#[derive(Clone)]
+pub struct StateProviderSource {
+    factory: Arc<dyn StateProviderFactory>,
+    parent_hash: BlockHash,
+}
 
-// Visibility note: `SharedStateProvider` and `shared_state_provider` are `pub` (not `pub(crate)`)
-// because rbuilder binaries (e.g. `debug-bench-machine`) need to share a `StateProviderBox` across
-// building threads through the same single allowed `unsafe` helper.
+impl StateProviderSource {
+    pub fn new(factory: Arc<dyn StateProviderFactory>, parent_hash: BlockHash) -> Self {
+        Self {
+            factory,
+            parent_hash,
+        }
+    }
 
-/// Re-asserts `Send + Sync` on reth's [`StateProviderBox`] and wraps it in an [`Arc`] for sharing
-/// across building threads.
-///
-/// # Safety
-/// `Box<dyn StateProvider + Send>` and `Box<dyn StateProvider + Send + Sync>` have identical
-/// representations: auto traits (`Send`/`Sync`) are markers and are not part of the value or the
-/// vtable. Re-asserting `Sync` is sound because every provider rbuilder boxes here is genuinely
-/// `Sync`: reth's MDBX-backed provider asserts `Sync` on its transaction, and the IPC provider
-/// holds only `Sync` state. rbuilder only performs read-only access through the shared handle.
-pub fn shared_state_provider(provider: StateProviderBox) -> SharedStateProvider {
-    let provider: Box<dyn StateProvider + Send + Sync> = unsafe { std::mem::transmute(provider) };
-    Arc::from(provider)
+    /// Opens a fresh state provider for the configured parent block.
+    pub fn state_provider(&self) -> ProviderResult<StateProviderBox> {
+        self.factory.history_by_block_hash(self.parent_hash)
+    }
 }
 
 pub mod ipc_state_provider;

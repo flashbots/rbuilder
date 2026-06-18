@@ -20,7 +20,6 @@ use rbuilder::{
         OrderPriority, ThreadBlockBuildingContext,
     },
     live_builder::{cli::LiveBuilderConfig, config::Config},
-    provider::StateProviderFactory,
     utils::{extract_onchain_block_txs, find_suggested_fee_recipient},
 };
 use rbuilder_config::load_toml_config;
@@ -156,14 +155,13 @@ impl LandedBlockInfo {
             .config
             .base_config()
             .create_reth_provider_factory(true)?;
-        let block_state = rbuilder::provider::shared_state_provider(
-            provider.history_by_block_hash(ctx.attributes.parent)?,
-        );
+        let source =
+            rbuilder::provider::StateProviderSource::new(Arc::new(provider), ctx.attributes.parent);
         let order_statistics = OrderStatistics::new();
         Ok(BlockBuildingHelperFromProvider::new(
             BuiltBlockId::ZERO,
             0,
-            block_state,
+            source,
             ctx,
             "TEST".to_string(),
             false,
@@ -225,7 +223,7 @@ async fn main() -> eyre::Result<()> {
     // Test backruns after prefix.
     println!("Backruns after prefix");
     for sim_order in sim_orders {
-        let mut builder = builder.box_clone();
+        let mut builder = builder.try_clone()?;
         let res = builder.commit_order(&mut block_info.local_ctx, &sim_order, &|sim_result| {
             simulation_too_low::<OrderMaxProfitPriority<FullProfitInfoGetter>>(
                 &sim_order.sim_value,

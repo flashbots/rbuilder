@@ -348,7 +348,7 @@ where
 {
     let nonces = {
         let state = provider.history_by_block_hash(ctx.attributes.parent)?;
-        NonceCache::new(crate::provider::shared_state_provider(state))
+        NonceCache::new(state)
     };
     let mut sim_tree = SimTree::new(nonces);
 
@@ -363,9 +363,7 @@ where
     }
 
     let mut sim_errors = Vec::new();
-    let initial_provider = crate::provider::shared_state_provider(
-        provider.history_by_block_hash(ctx.attributes.parent)?,
-    );
+    let initial_provider = provider.history_by_block_hash(ctx.attributes.parent)?;
     let mut state_for_sim = CachedDB::new(initial_provider, ctx.shared_cached_reads.clone());
     let mut local_ctx = ThreadBlockBuildingContext::default();
     loop {

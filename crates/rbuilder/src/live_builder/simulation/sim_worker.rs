@@ -9,7 +9,6 @@ use crate::{
     telemetry::{self, add_sim_thread_utilisation_timings, mark_order_simulation_end},
 };
 use parking_lot::Mutex;
-use reth_provider::StateProvider;
 use std::{
     sync::Arc,
     thread::sleep,
@@ -29,7 +28,7 @@ pub fn run_sim_worker<P>(
 ) where
     P: StateProviderFactory,
 {
-    'main: loop {
+    loop {
         if global_cancellation.is_cancelled() {
             return;
         }
@@ -51,14 +50,6 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
-        let state_provider: Arc<dyn StateProvider + Send + Sync> =
-            match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => crate::provider::shared_state_provider(state_provider),
-                Err(err) => {
-                    error!(?err, "Error while getting state for block");
-                    continue 'main;
-                }
-            };
         while let Ok(cancellable_task) = current_sim_context.requests.recv() {
             // Avoid starting sims when the output channel is closed.
             if current_sim_context.results.is_closed() {
@@ -70,8 +61,17 @@ pub fn run_sim_worker<P>(
 
                 let order_id = task.order.id();
                 let start_time = Instant::now();
+                let state_provider = match provider
+                    .history_by_block_hash(current_sim_context.block_ctx.attributes.parent)
+                {
+                    Ok(state_provider) => state_provider,
+                    Err(err) => {
+                        error!(?err, "Error while getting state for block");
+                        break;
+                    }
+                };
                 let cached = CachedDB::new(
-                    state_provider.clone(),
+                    state_provider,
                     current_sim_context.block_ctx.shared_cached_reads.clone(),
                 );
                 let mut block_state = BlockState::new(cached);

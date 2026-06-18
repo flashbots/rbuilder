@@ -1,7 +1,6 @@
 use alloy_primitives::utils::format_ether;
 use crossbeam_queue::SegQueue;
 use eyre::Result;
-use reth_provider::StateProvider;
 use std::{
     sync::{mpsc as std_mpsc, Arc},
     thread,
@@ -15,7 +14,11 @@ use super::{
     simulation_cache::SharedSimulationCache, ConflictGroup, ConflictResolutionResultPerGroup,
     ConflictTask, GroupId, ResolutionResult, TaskPriority,
 };
-use crate::{building::BlockBuildingContext, provider::StateProviderFactory, utils::elapsed_ms};
+use crate::{
+    building::BlockBuildingContext,
+    provider::{StateProviderFactory, StateProviderSource},
+    utils::elapsed_ms,
+};
 
 pub type TaskQueue = Arc<SegQueue<ConflictTask>>;
 
@@ -58,18 +61,15 @@ where
     }
 
     pub fn start(&self) -> eyre::Result<()> {
+        let source =
+            StateProviderSource::new(Arc::new(self.provider.clone()), self.ctx.attributes.parent);
         for _ in 0..self.num_threads {
             let task_queue = self.task_queue.clone();
             let cancellation_token = self.cancellation_token.clone();
             let group_result_sender = self.group_result_sender.clone();
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
-
-            let block_state: Arc<dyn StateProvider + Send + Sync> =
-                crate::provider::shared_state_provider(
-                    self.provider
-                        .history_by_block_hash(self.ctx.attributes.parent)?,
-                );
+            let source = source.clone();
             thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {
@@ -80,7 +80,7 @@ where
                         if let Ok((task_id, result)) = Self::process_task(
                             task,
                             &ctx,
-                            block_state.clone(),
+                            source.clone(),
                             cancellation_token.clone(),
                             Arc::clone(&simulation_cache),
                         ) {
@@ -113,12 +113,12 @@ where
     fn process_task(
         task: ConflictTask,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider + Send + Sync>,
+        source: StateProviderSource,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut merging_context = ResolverContext::new(
-            state,
+            source,
             ctx.clone(),
             cancellation_token.clone(),
             simulation_cache,
@@ -157,7 +157,7 @@ where
         &mut self,
         new_groups: Vec<ConflictGroup>,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider + Send + Sync>,
+        source: StateProviderSource,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();
@@ -168,7 +168,7 @@ where
                 let result = Self::process_task(
                     task,
                     ctx,
-                    state.clone(),
+                    source.clone(),
                     CancellationToken::new(),
                     simulation_cache,
                 );

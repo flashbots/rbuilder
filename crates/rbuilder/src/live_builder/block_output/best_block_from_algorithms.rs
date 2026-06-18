@@ -1,7 +1,9 @@
 use ahash::HashMap;
 use derivative::Derivative;
 
-use crate::building::builders::block_building_helper::BiddableUnfinishedBlock;
+use crate::building::builders::block_building_helper::{
+    BiddableUnfinishedBlock, BlockBuildingHelperError,
+};
 
 /// BestBlockFromAlgorithms maintains last block by each algorithm
 /// When new block is created we choose best (by profit) block from last blocks produced by each algorithm.
@@ -17,7 +19,7 @@ impl BestBlockFromAlgorithms {
     pub fn update_with_new_block(
         &mut self,
         unfinished_block: BiddableUnfinishedBlock,
-    ) -> Option<BiddableUnfinishedBlock> {
+    ) -> Result<Option<BiddableUnfinishedBlock>, BlockBuildingHelperError> {
         self.last_block_by_algorithm.insert(
             unfinished_block.block.builder_name().to_string(),
             unfinished_block,
@@ -32,10 +34,10 @@ impl BestBlockFromAlgorithms {
             .built_block_trace()
             .transactions_hash();
         if self.last_best_block_hash == best_block_hash {
-            None
+            Ok(None)
         } else {
             self.last_best_block_hash = best_block_hash;
-            Some(last_best_block.clone())
+            Ok(Some(last_best_block.try_clone()?))
         }
     }
 }
@@ -108,7 +110,9 @@ mod tests {
         let mut data_gen = TestDataGenerator::new();
         let mut state = BestBlockFromAlgorithms::default();
         let block = data_gen.create_block(U256::from(LOW_VAL), NAME_1);
-        let best_block = state.update_with_new_block(block.clone());
+        let best_block = state
+            .update_with_new_block(block.try_clone().unwrap())
+            .unwrap();
         assert_eq!(block.true_block_value, best_block.unwrap().true_block_value);
     }
 
@@ -119,8 +123,10 @@ mod tests {
         let mut state = BestBlockFromAlgorithms::default();
         let block_low = data_gen.create_block(U256::from(LOW_VAL), NAME_1);
         let block_high = data_gen.create_block(U256::from(HIGH_VAL), NAME_2);
-        let _ = state.update_with_new_block(block_low);
-        let best_block = state.update_with_new_block(block_high.clone());
+        let _ = state.update_with_new_block(block_low).unwrap();
+        let best_block = state
+            .update_with_new_block(block_high.try_clone().unwrap())
+            .unwrap();
         assert_eq!(
             block_high.true_block_value,
             best_block.unwrap().true_block_value
@@ -134,8 +140,10 @@ mod tests {
         let mut state = BestBlockFromAlgorithms::default();
         let block_low = data_gen.create_block(U256::from(LOW_VAL), NAME_1);
         let block_high = data_gen.create_block(U256::from(HIGH_VAL), NAME_1);
-        let _ = state.update_with_new_block(block_low);
-        let best_block = state.update_with_new_block(block_high.clone());
+        let _ = state.update_with_new_block(block_low).unwrap();
+        let best_block = state
+            .update_with_new_block(block_high.try_clone().unwrap())
+            .unwrap();
         assert_eq!(
             block_high.true_block_value,
             best_block.unwrap().true_block_value
@@ -150,8 +158,10 @@ mod tests {
         let block_high = data_gen.create_block(U256::from(HIGH_VAL), NAME_1);
         let block_low = data_gen.create_block(U256::from(LOW_VAL), NAME_1);
 
-        let _ = state.update_with_new_block(block_high);
-        let best_block = state.update_with_new_block(block_low.clone());
+        let _ = state.update_with_new_block(block_high).unwrap();
+        let best_block = state
+            .update_with_new_block(block_low.try_clone().unwrap())
+            .unwrap();
         assert_eq!(
             block_low.true_block_value,
             best_block.unwrap().true_block_value
@@ -166,8 +176,10 @@ mod tests {
         let block_high = data_gen.create_block(U256::from(HIGH_VAL), NAME_1);
         let block_low = data_gen.create_block(U256::from(LOW_VAL), NAME_2);
 
-        let _ = state.update_with_new_block(block_high);
-        let best_block = state.update_with_new_block(block_low.clone());
+        let _ = state.update_with_new_block(block_high).unwrap();
+        let best_block = state
+            .update_with_new_block(block_low.try_clone().unwrap())
+            .unwrap();
         assert!(best_block.is_none());
     }
 
@@ -178,8 +190,10 @@ mod tests {
         let mut state = BestBlockFromAlgorithms::default();
         let block = data_gen.create_block(U256::from(LOW_VAL), NAME_1);
 
-        let _ = state.update_with_new_block(block.clone());
-        let best_block = state.update_with_new_block(block);
+        let _ = state
+            .update_with_new_block(block.try_clone().unwrap())
+            .unwrap();
+        let best_block = state.update_with_new_block(block).unwrap();
         assert!(best_block.is_none());
     }
 }

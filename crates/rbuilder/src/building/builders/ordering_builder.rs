@@ -21,7 +21,7 @@ use crate::{
         block_output::bidding_service_interface::CompetitionBidContext,
         building::built_block_cache::BuiltBlockCache,
     },
-    provider::StateProviderFactory,
+    provider::{StateProviderFactory, StateProviderSource},
     telemetry::{
         add_ordering_builder_base_stage_stats, add_ordering_builder_pre_filtered_stage_stats,
         mark_builder_considers_order, OrderInclusionRatio,
@@ -32,7 +32,6 @@ use ahash::{HashMap, HashSet};
 use alloy_primitives::I256;
 use derivative::Derivative;
 use rbuilder_primitives::{AccountNonce, OrderId, SimValue, SimulatedOrder};
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use std::{
     marker::PhantomData,
@@ -95,11 +94,12 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
 {
     let payload_id = input.ctx.payload_id;
 
-    let block_state: Arc<dyn StateProvider + Send + Sync> = match input
-        .provider
-        .history_by_block_hash(input.ctx.attributes.parent)
-    {
-        Ok(state) => crate::provider::shared_state_provider(state),
+    let source = StateProviderSource::new(
+        Arc::new(input.provider.clone()),
+        input.ctx.attributes.parent,
+    );
+    let state_provider = match source.state_provider() {
+        Ok(state_provider) => state_provider,
         Err(err) => {
             error!(
                 ?err,
@@ -111,13 +111,13 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         }
     };
 
-    let nonces = NonceCache::new(block_state.clone());
+    let nonces = NonceCache::new(state_provider);
 
     let mut order_intake_consumer =
         OrderIntakeConsumer::<OrderPriorityType>::new(nonces, input.input);
 
     let mut builder = OrderingBuilderContext::new(
-        block_state.clone(),
+        source,
         input.builder_name,
         input.ctx,
         config.clone(),
@@ -156,7 +156,9 @@ pub fn run_ordering_builder<P, OrderPriorityType>(
         ) {
             Ok(block) => {
                 if let Ok(block) = BiddableUnfinishedBlock::new(block) {
-                    input.sink.new_block(block);
+                    if let Err(err) = input.sink.new_block(block) {
+                        error!(?err, payload_id, "Failed to submit unfinished block");
+                    }
                 }
             }
             Err(err) => {
@@ -190,8 +192,12 @@ where
     let block_orders =
         block_orders_from_sim_orders::<OrderPriorityType>(input.sim_orders, &state_provider)?;
     let mut local_ctx = ThreadBlockBuildingContext::default();
+    let source = StateProviderSource::new(
+        Arc::new(input.provider.clone()),
+        input.ctx.attributes.parent,
+    );
     let mut builder = OrderingBuilderContext::new(
-        crate::provider::shared_state_provider(state_provider),
+        source,
         input.builder_name,
         input.ctx.clone(),
         ordering_config,
@@ -220,7 +226,7 @@ where
 #[derivative(Debug)]
 pub struct OrderingBuilderContext {
     #[derivative(Debug = "ignore")]
-    state: Arc<dyn StateProvider + Send + Sync>,
+    source: StateProviderSource,
     builder_name: String,
     ctx: BlockBuildingContext,
     config: OrderingBuilderConfig,
@@ -238,7 +244,7 @@ pub struct OrderingBuilderContext {
 
 impl OrderingBuilderContext {
     pub fn new(
-        state: Arc<dyn StateProvider + Send + Sync>,
+        source: StateProviderSource,
         builder_name: String,
         ctx: BlockBuildingContext,
         config: OrderingBuilderConfig,
@@ -246,7 +252,7 @@ impl OrderingBuilderContext {
         built_block_cache: Arc<BuiltBlockCache>,
     ) -> Self {
         Self {
-            state,
+            source,
             builder_name,
             ctx,
             local_ctx: Default::default(),
@@ -301,7 +307,7 @@ impl OrderingBuilderContext {
         let mut block_building_helper = BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
             next_journal_sequence_number,
-            self.state.clone(),
+            self.source.clone(),
             self.ctx.clone(),
             self.builder_name.clone(),
             self.config.discard_txs,

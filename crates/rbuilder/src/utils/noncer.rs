@@ -2,7 +2,7 @@ use alloy_primitives::Address;
 use dashmap::DashMap;
 use derivative::Derivative;
 use reth_errors::ProviderResult;
-use reth_provider::StateProvider;
+use reth_provider::{StateProvider, StateProviderBox};
 use std::sync::Arc;
 
 /// Struct to get nonces for Addresses, caching the results.
@@ -10,12 +10,12 @@ use std::sync::Arc;
 #[derivative(Debug)]
 pub struct NonceCache {
     #[derivative(Debug = "ignore")]
-    state: Arc<dyn StateProvider + Send + Sync>,
+    state: StateProviderBox,
     cache: Arc<DashMap<Address, u64>>,
 }
 
 impl NonceCache {
-    pub fn new(state: Arc<dyn StateProvider + Send + Sync>) -> Self {
+    pub fn new(state: StateProviderBox) -> Self {
         Self {
             state,
             cache: Arc::new(DashMap::default()),
