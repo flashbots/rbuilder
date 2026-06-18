@@ -25,7 +25,7 @@ use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
     BlockNumReader, BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory,
     HashedPostStateProvider, HeaderProvider, PruneCheckpointReader, StageCheckpointReader,
-    StateProviderBox, StaticFileProviderFactory, StorageChangeSetReader, StorageSettingsCache,
+    StateProviderBox, StorageChangeSetReader, StorageSettingsCache,
 };
 use revm::database::BundleState;
 use std::{

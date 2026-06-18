@@ -10,9 +10,6 @@ use rbuilder_primitives::{
     serialize::{RawTx, TxEncoding},
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth_chainspec::ChainSpec;
-use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
-use revm::context::CfgEnv;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub mod bls;
