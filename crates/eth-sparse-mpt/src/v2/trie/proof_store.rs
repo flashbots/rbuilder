@@ -2,6 +2,7 @@ use alloy_rlp::Decodable;
 use parking_lot::{lock_api::RwLockReadGuard, RawRwLock, RwLock};
 use std::sync::Arc;
 
+use crate::utils::convert_reth_nybbles_to_nibbles;
 use alloy_trie::nodes::TrieNode as AlloyTrieNode;
 use arrayvec::ArrayVec;
 use dashmap::DashMap;
@@ -82,11 +83,11 @@ impl ProofStore {
                     ProofNode::Branch { children }
                 }
                 AlloyTrieNode::Extension(node) => ProofNode::Extension {
-                    key: self.add_key(node.key),
+                    key: self.add_key(convert_reth_nybbles_to_nibbles(node.key)),
                     child: self.add_rlp_ptr(node.child.as_slice().try_into().unwrap()),
                 },
                 AlloyTrieNode::Leaf(node) => ProofNode::Leaf {
-                    key: self.add_key(node.key),
+                    key: self.add_key(convert_reth_nybbles_to_nibbles(node.key)),
                     value: self.add_value(node.value),
                 },
                 AlloyTrieNode::EmptyRoot => ProofNode::Empty,

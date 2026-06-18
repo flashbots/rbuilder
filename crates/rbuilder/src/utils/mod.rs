@@ -140,13 +140,6 @@ pub fn gen_uid() -> u64 {
     rand::random()
 }
 
-pub fn default_cfg_env(chain_spec: &ChainSpec, block_timestamp: u64, block_number: u64) -> CfgEnv {
-    let spec = revm_spec_by_timestamp_and_block_number(chain_spec, block_timestamp, block_number);
-    CfgEnv::new()
-        .with_chain_id(chain_spec.chain().id())
-        .with_spec(spec)
-}
-
 pub fn unix_timestamp_now() -> u64 {
     time::OffsetDateTime::now_utc()
         .unix_timestamp()

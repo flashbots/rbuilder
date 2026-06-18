@@ -13,15 +13,19 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
-use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
+use rbuilder_utils::reth_db::open_rocksdb_read_only;
+use reth::{
+    providers::{BlockHashReader, ChainSpecProvider, ProviderFactory},
+    tasks::Runtime,
+};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
 use reth_provider::{
     providers::{ProviderNodeTypes, StaticFileProvider},
-    BlockNumReader, BlockReader, DatabaseProviderFactory, HashedPostStateProvider, HeaderProvider,
-    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StaticFileProviderFactory,
-    TrieReader,
+    BlockNumReader, BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory,
+    HashedPostStateProvider, HeaderProvider, PruneCheckpointReader, StageCheckpointReader,
+    StateProviderBox, StaticFileProviderFactory, StorageChangeSetReader, StorageSettingsCache,
 };
 use revm::database::BundleState;
 use std::{
@@ -31,6 +35,15 @@ use std::{
 };
 use tracing::{debug, error};
 
+/// On-disk paths a [`ProviderFactoryReopener`] needs to recreate its [`ProviderFactory`] when it
+/// detects an inconsistency. `None` for factories built via [`ProviderFactoryReopener::new_from_existing`]
+/// (tests), which cannot recover these paths from an existing factory and never reopen.
+#[derive(Debug, Clone)]
+struct ReopenPaths {
+    static_files_path: PathBuf,
+    rocksdb_path: PathBuf,
+}
+
 /// This struct is used as a workaround for https://github.com/paradigmxyz/reth/issues/7836
 /// it shares one instance of the provider factory that is recreated when inconsistency is detected.
 /// This struct should be used on the level of the whole program and ProviderFactory should be extracted from it
@@ -39,9 +52,9 @@ use tracing::{debug, error};
 pub struct ProviderFactoryReopener<N: NodeTypesWithDB> {
     provider_factory: Arc<Mutex<ProviderFactory<N>>>,
     chain_spec: Arc<N::ChainSpec>,
-    static_files_path: PathBuf,
-    /// Patch to disable checking on test mode. Is ugly but ProviderFactoryReopener should die shortly (5/24/2024).
-    testing_mode: bool,
+    /// Paths to recreate the factory on reopen. `None` disables consistency checks and reopening
+    /// (used by tests via [`Self::new_from_existing`]).
+    reopen_paths: Option<ReopenPaths>,
     /// None ->No root hash (MockRootHasher)
     root_hash_config: Option<RootHashContext>,
 }
@@ -52,20 +65,25 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         db: N::DB,
         chain_spec: Arc<N::ChainSpec>,
         static_files_path: PathBuf,
+        rocksdb_path: PathBuf,
         root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
         let provider_factory = ProviderFactory::new(
             db,
             chain_spec.clone(),
             StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
-        );
+            open_rocksdb_read_only(rocksdb_path.as_path())?,
+            Runtime::default(),
+        )?;
 
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
-            static_files_path,
+            reopen_paths: Some(ReopenPaths {
+                static_files_path,
+                rocksdb_path,
+            }),
             root_hash_config,
-            testing_mode: false,
         })
     }
 
@@ -74,13 +92,11 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
         root_hash_config: Option<RootHashContext>,
     ) -> RethResult<Self> {
         let chain_spec = provider_factory.chain_spec();
-        let static_files_path = provider_factory.static_file_provider().path().to_path_buf();
         Ok(Self {
             provider_factory: Arc::new(Mutex::new(provider_factory)),
             chain_spec,
-            static_files_path,
+            reopen_paths: None,
             root_hash_config,
-            testing_mode: true,
         })
     }
 
@@ -97,38 +113,44 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
     /// If the current block number is already known at the time of calling this method, you may pass it to
     /// avoid an additional DB lookup for the latest block number.
     pub fn check_consistency_and_reopen_if_needed(&self) -> eyre::Result<ProviderFactory<N>> {
+        // Without reopen paths (factories built via `new_from_existing`) consistency checks are
+        // disabled, since the factory cannot be recreated.
+        let Some(reopen_paths) = &self.reopen_paths else {
+            return Ok(self.provider_factory_unchecked());
+        };
+
         let best_block_number = self
             .provider_factory_unchecked()
             .last_block_number()
             .map_err(|err| eyre::eyre!("Error getting best block number: {:?}", err))?;
         let mut provider_factory = self.provider_factory.lock();
 
-        if !self.testing_mode {
-            match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
-                Ok(()) => {}
-                Err(err) => {
-                    debug!(?err, "Provider factory is inconsistent, reopening");
-                    inc_provider_reopen_counter();
+        match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
+            Ok(()) => {}
+            Err(err) => {
+                debug!(?err, "Provider factory is inconsistent, reopening");
+                inc_provider_reopen_counter();
 
-                    *provider_factory = ProviderFactory::new(
-                        provider_factory.db_ref().clone(),
-                        self.chain_spec.clone(),
-                        StaticFileProvider::read_only(self.static_files_path.as_path(), true)
-                            .unwrap(),
-                    );
-                }
+                *provider_factory = ProviderFactory::new(
+                    provider_factory.db_ref().clone(),
+                    self.chain_spec.clone(),
+                    StaticFileProvider::read_only(reopen_paths.static_files_path.as_path(), true)
+                        .unwrap(),
+                    open_rocksdb_read_only(reopen_paths.rocksdb_path.as_path())?,
+                    Runtime::default(),
+                )?;
             }
+        }
 
-            match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
-                Ok(()) => {}
-                Err(err) => {
-                    inc_provider_bad_reopen_counter();
+        match check_block_hash_reader_health(best_block_number, provider_factory.deref_mut()) {
+            Ok(()) => {}
+            Err(err) => {
+                inc_provider_bad_reopen_counter();
 
-                    eyre::bail!(
-                        "Provider factory is inconsistent after reopening: {:?}",
-                        err
-                    );
-                }
+                eyre::bail!(
+                    "Provider factory is inconsistent after reopening: {:?}",
+                    err
+                );
             }
         }
         Ok(provider_factory.clone())
@@ -294,9 +316,15 @@ impl<T, HasherType> RootHasherImpl<T, HasherType> {
 
 impl<T, HasherType> RootHasher for RootHasherImpl<T, HasherType>
 where
-    HasherType: HashedPostStateProvider,
+    HasherType: HashedPostStateProvider + Send + Sync,
     T: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + DBProvider
+                          + StorageSettingsCache,
         > + Send
         + Sync
         + Clone

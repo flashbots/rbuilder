@@ -51,9 +51,9 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
-        let state_provider: Arc<dyn StateProvider> =
+        let state_provider: Arc<dyn StateProvider + Send + Sync> =
             match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
-                Ok(state_provider) => Arc::from(state_provider),
+                Ok(state_provider) => crate::provider::shared_state_provider(state_provider),
                 Err(err) => {
                     error!(?err, "Error while getting state for block");
                     continue 'main;

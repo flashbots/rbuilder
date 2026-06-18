@@ -479,7 +479,7 @@ fn calc_stats(data: &[Duration]) -> Result<Stats> {
     ms.sort_by(|a, b| a.total_cmp(b));
 
     let mean_ms = ms.iter().sum::<f64>() / ms.len() as f64;
-    let median_ms = if ms.len() % 2 == 0 {
+    let median_ms = if ms.len().is_multiple_of(2) {
         (ms[ms.len() / 2 - 1] + ms[ms.len() / 2]) / 2.0
     } else {
         ms[ms.len() / 2]

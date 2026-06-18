@@ -55,7 +55,8 @@ use reth_payload_builder::EthPayloadBuilderAttributes;
 use reth_primitives::BlockBody;
 use reth_primitives_traits::{proofs, Block as _};
 use revm::{
-    context_interface::result::InvalidTransaction, database::states::bundle_state::BundleRetention,
+    context_interface::result::InvalidTransaction,
+    database::{states::bundle_state::BundleRetention, DatabaseCommitExt as _},
     primitives::hardfork::SpecId,
 };
 use serde::Deserialize;
@@ -173,6 +174,7 @@ impl BlockBuildingContext {
                     gas_limit,
                     withdrawals: Some(attributes.withdrawals.clone()),
                     parent_beacon_block_root: attributes.parent_beacon_block_root,
+                    extra_data: extra_data.clone().into(),
                 },
             )
             .ok()?;

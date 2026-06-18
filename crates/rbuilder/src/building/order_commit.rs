@@ -24,11 +24,20 @@ use reth_primitives::Receipt;
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
-    database::{states::bundle_state::BundleRetention, BundleState, State},
+    database::{bal::EvmDatabaseError, states::bundle_state::BundleRetention, BundleState, State},
     Database as _, DatabaseCommit,
 };
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+
+/// revm 34 wraps DB errors in `EvmDatabaseError`; plain account reads never produce a
+/// block-access-list error, so map back to the underlying provider error.
+fn provider_error(err: EvmDatabaseError<ProviderError>) -> ProviderError {
+    match err {
+        EvmDatabaseError::Database(err) => err,
+        EvmDatabaseError::Bal(err) => ProviderError::other(err),
+    }
+}
 
 #[derive(Clone)]
 pub struct BlockState<DB> {
@@ -104,7 +113,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(provider_error)?
             .map(|acc| acc.balance)
             .unwrap_or_default())
     }
@@ -113,7 +123,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(provider_error)?
             .map(|acc| acc.nonce)
             .unwrap_or_default())
     }
@@ -122,7 +133,8 @@ where
         let mut db = self.new_db_ref();
         Ok(db
             .as_mut()
-            .basic(address)?
+            .basic(address)
+            .map_err(provider_error)?
             .map(|acc| acc.code_hash)
             .unwrap_or_else(|| KECCAK_EMPTY))
     }
@@ -429,7 +441,9 @@ pub enum CriticalCommitOrderError {
     #[error("Reth error: {0}")]
     Reth(#[from] ProviderError),
     #[error("EVM error: {0}")]
-    EVM(#[from] EVMError<ProviderError>),
+    EVM(#[from] EVMError<EvmDatabaseError<ProviderError>>),
+    #[error("EVM database error: {0}")]
+    EvmDatabase(#[from] EvmDatabaseError<ProviderError>),
     /// This could happen if we can't fit a balance in a I256 (unlikely/impossible since the ETH total supply is several orders of magnitude bellow I256::max)
     #[error("BigIntConversionError error: {0}")]
     BigIntConversionError(#[from] alloy_primitives::BigIntConversionError),
@@ -1117,7 +1131,7 @@ fn execute_evm<Factory>(
     evm_env: EvmEnv,
     tx_with_blobs: &TransactionSignedEcRecoveredWithBlobs,
     used_state_tracer: Option<&mut UsedStateTrace>,
-    db: impl Database<Error = ProviderError>,
+    db: impl Database<Error = EvmDatabaseError<ProviderError>>,
     blocklist: &HashSet<Address>,
 ) -> Result<Result<ResultAndState, TransactionErr>, CriticalCommitOrderError>
 where

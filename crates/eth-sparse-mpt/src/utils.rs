@@ -54,25 +54,29 @@ pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibble
 
 #[inline]
 pub fn encode_leaf(key: &Nibbles, value: &[u8], out: &mut dyn BufMut) {
-    LeafNodeRef { key, value }.encode(out)
+    let key = reth_trie::Nibbles::from_nibbles(key.as_slice());
+    LeafNodeRef { key: &key, value }.encode(out)
 }
 
 pub fn encode_len_leaf(key: &Nibbles, value: &[u8]) -> usize {
-    LeafNodeRef { key, value }.length()
+    let key = reth_trie::Nibbles::from_nibbles(key.as_slice());
+    LeafNodeRef { key: &key, value }.length()
 }
 
 #[inline]
 pub fn encode_extension(key: &Nibbles, child_rlp_pointer: &[u8], out: &mut dyn BufMut) {
+    let key = reth_trie::Nibbles::from_nibbles(key.as_slice());
     ExtensionNodeRef {
-        key,
+        key: &key,
         child: child_rlp_pointer,
     }
     .encode(out)
 }
 
 pub fn encode_len_extension(key: &Nibbles, child_rlp_pointer: &[u8]) -> usize {
+    let key = reth_trie::Nibbles::from_nibbles(key.as_slice());
     ExtensionNodeRef {
-        key,
+        key: &key,
         child: child_rlp_pointer,
     }
     .length()

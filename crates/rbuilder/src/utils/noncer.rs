@@ -10,12 +10,12 @@ use std::sync::Arc;
 #[derivative(Debug)]
 pub struct NonceCache {
     #[derivative(Debug = "ignore")]
-    state: Arc<dyn StateProvider>,
+    state: Arc<dyn StateProvider + Send + Sync>,
     cache: Arc<DashMap<Address, u64>>,
 }
 
 impl NonceCache {
-    pub fn new(state: Arc<dyn StateProvider>) -> Self {
+    pub fn new(state: Arc<dyn StateProvider + Send + Sync>) -> Self {
         Self {
             state,
             cache: Arc::new(DashMap::default()),

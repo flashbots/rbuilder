@@ -65,10 +65,11 @@ where
             let simulation_cache = self.simulation_cache.clone();
             let ctx = self.ctx.clone();
 
-            let block_state: Arc<dyn StateProvider> = self
-                .provider
-                .history_by_block_hash(self.ctx.attributes.parent)?
-                .into();
+            let block_state: Arc<dyn StateProvider + Send + Sync> =
+                crate::provider::shared_state_provider(
+                    self.provider
+                        .history_by_block_hash(self.ctx.attributes.parent)?,
+                );
             thread::spawn(move || {
                 while !cancellation_token.is_cancelled() {
                     if let Some(task) = task_queue.pop() {
@@ -112,7 +113,7 @@ where
     fn process_task(
         task: ConflictTask,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<dyn StateProvider + Send + Sync>,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Result<(GroupId, (ResolutionResult, ConflictGroup))> {
@@ -156,7 +157,7 @@ where
         &mut self,
         new_groups: Vec<ConflictGroup>,
         ctx: &BlockBuildingContext,
-        state: Arc<dyn StateProvider>,
+        state: Arc<dyn StateProvider + Send + Sync>,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Vec<(GroupId, (ResolutionResult, ConflictGroup))> {
         let mut results = Vec::new();

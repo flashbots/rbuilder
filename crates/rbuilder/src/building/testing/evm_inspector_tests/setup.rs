@@ -91,8 +91,8 @@ impl TestSetup {
         let mut inspector = RBuilderEVMInspector::new(&tx, Some(&mut used_state_trace));
 
         // block state
-        let state_provider: Arc<dyn StateProvider> =
-            Arc::from(self.test_chain.provider_factory().latest()?);
+        let state_provider: Arc<dyn StateProvider + Send + Sync> =
+            crate::provider::shared_state_provider(self.test_chain.provider_factory().latest()?);
         let cached = CachedDB::new(
             state_provider,
             self.test_chain

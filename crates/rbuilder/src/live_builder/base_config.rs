@@ -93,6 +93,7 @@ pub struct BaseConfig {
     pub reth_datadir: Option<PathBuf>,
     pub reth_db_path: Option<PathBuf>,
     pub reth_static_files_path: Option<PathBuf>,
+    pub reth_rocksdb_path: Option<PathBuf>,
 
     /// Backwards compatibility. Downloads blocklist from a file.
     /// Same as setting a file name on blocklist.
@@ -298,6 +299,7 @@ impl BaseConfig {
             self.reth_datadir.as_deref(),
             self.reth_db_path.as_deref(),
             self.reth_static_files_path.as_deref(),
+            self.reth_rocksdb_path.as_deref(),
             self.chain_spec()?,
             false,
             if skip_root_hash {
@@ -503,6 +505,7 @@ impl Default for BaseConfig {
             reth_datadir: Some(DEFAULT_RETH_DB_PATH.parse().unwrap()),
             reth_db_path: None,
             reth_static_files_path: None,
+            reth_rocksdb_path: None,
             blocklist_file_path: None,
             blocklist: None,
             blocklist_url_max_age_hours: None,
@@ -557,6 +560,7 @@ pub fn create_provider_factory(
     reth_datadir: Option<&Path>,
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
+    reth_rocksdb_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     rw: bool,
     root_hash_config: Option<RootHashContext>,
@@ -584,7 +588,7 @@ pub fn create_provider_factory(
         open_reth_db(&reth_db_path)
     }?;
 
-    let reth_static_files_path = match (reth_static_files_path, reth_datadir) {
+    let reth_static_files_path = match (reth_static_files_path, reth_datadir.clone()) {
         (Some(reth_static_files_path), _) => PathBuf::from(reth_static_files_path),
         (None, Some(reth_datadir)) => reth_datadir.join("static_files"),
         (None, None) => {
@@ -592,8 +596,21 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir) {
+        (Some(reth_rocksdb_path), _) => PathBuf::from(reth_rocksdb_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
+        (None, None) => {
+            eyre::bail!("Either reth_rocksdb_path or reth_datadir must be provided")
+        }
+    };
+
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        reth_rocksdb_path,
+        root_hash_config,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
@@ -628,11 +645,15 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
 mod test {
     use super::*;
     use reth::args::DatadirArgs;
+    use reth::tasks::Runtime;
     use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
     use reth_db_common::init::init_genesis;
     use reth_node_core::dirs::{DataDirPath, MaybePlatformPath};
-    use reth_provider::{providers::StaticFileProvider, ProviderFactory};
+    use reth_provider::{
+        providers::{RocksDBProvider, StaticFileProvider},
+        ProviderFactory,
+    };
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
@@ -666,49 +687,72 @@ mod test {
         let data_dir = MaybePlatformPath::<DataDirPath>::from(tempdir.keep());
         let data_dir = data_dir.unwrap_or_chain_default(Chain::mainnet(), DatadirArgs::default());
 
-        let db = Arc::new(init_db(data_dir.data_dir(), Default::default()).unwrap());
+        // Initialize the db at the same path `create_provider_factory` resolves to
+        // (`<datadir>/db`). reth 1.11's `ProviderFactory::new` reads storage settings on open and
+        // errors on an uninitialized db, so the setup must initialize the exact path under test.
+        let db = Arc::new(init_db(data_dir.db(), Default::default()).unwrap());
         let provider_factory = ProviderFactory::<NodeTypesWithDBAdapter<EthereumNode, _>>::new(
             db,
             SEPOLIA.clone(),
             StaticFileProvider::read_write(data_dir.static_files().as_path()).unwrap(),
-        );
+            // Initialize RocksDB with the default tables so `create_provider_factory` can open it read-only below.
+            RocksDBProvider::builder(data_dir.rocksdb().as_path())
+                .with_default_tables()
+                .build()
+                .unwrap(),
+            Runtime::default(),
+        )
+        .unwrap();
         init_genesis(&provider_factory).unwrap();
+        // Release the read-write static-files lock before exercising `create_provider_factory`,
+        // which opens the same path read-only: reth 1.11's storage lock rejects a same-process
+        // re-lock while the setup factory still holds it.
+        drop(provider_factory);
 
         // Create longer-lived PathBuf values
         let data_dir_path = data_dir.data_dir();
         let db_path = data_dir.db();
         let static_files_path = data_dir.static_files();
+        let rocksdb_path = data_dir.rocksdb();
 
         let test_cases = [
-            // use main dir to resolve reth_db and static_files
-            (Some(data_dir_path), None, None, true),
+            // use main dir to resolve reth_db, static_files and rocksdb
+            (Some(data_dir_path), None, None, None, true),
             // use main dir to resolve reth_db and provide static_files
             (
                 Some(data_dir_path),
                 None,
                 Some(static_files_path.clone()),
+                None,
                 true,
             ),
-            // provide both reth_db and static_files
+            // provide reth_db, static_files and rocksdb explicitly
             (
                 None,
                 Some(db_path.as_path()),
                 Some(static_files_path.clone()),
+                Some(rocksdb_path.as_path()),
                 true,
             ),
             // fail to provide main dir to resolve empty static_files
-            (None, Some(db_path.as_path()), None, false),
+            (None, Some(db_path.as_path()), None, None, false),
             // fail to provide main dir to resolve empty reth_db
-            (None, None, Some(static_files_path), false),
+            (None, None, Some(static_files_path), None, false),
         ];
 
-        for (reth_datadir_path, reth_db_path, reth_static_files_path, should_succeed) in
-            test_cases.iter()
+        for (
+            reth_datadir_path,
+            reth_db_path,
+            reth_static_files_path,
+            reth_rocksdb_path,
+            should_succeed,
+        ) in test_cases.iter()
         {
             let result = create_provider_factory(
                 reth_datadir_path.as_deref(),
                 reth_db_path.as_deref(),
                 reth_static_files_path.as_deref(),
+                reth_rocksdb_path.as_deref(),
                 Default::default(),
                 true,
                 None,

@@ -69,8 +69,10 @@ where
 
     let mut local_ctx = ThreadBlockBuildingContext::default();
 
-    let state_provider: Arc<dyn StateProvider> =
-        Arc::from(provider.history_by_block_hash(ctx.attributes.parent)?);
+    let state_provider: Arc<dyn StateProvider + Send + Sync> =
+        crate::provider::shared_state_provider(
+            provider.history_by_block_hash(ctx.attributes.parent)?,
+        );
     let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
     let mut partial_block = PartialBlock::new(true);
     let mut state = BlockState::new(cached);

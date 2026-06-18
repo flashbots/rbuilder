@@ -45,7 +45,7 @@ impl Drop for SharedCachedReads {
 /// Database that wraps a reth state provider with a shared read cache.
 #[derive(Clone)]
 pub struct CachedDB {
-    state_provider: Arc<dyn StateProvider>,
+    state_provider: Arc<dyn StateProvider + Send + Sync>,
     shared_cache: Arc<SharedCachedReads>,
 }
 
@@ -57,7 +57,7 @@ impl std::fmt::Debug for CachedDB {
 
 impl CachedDB {
     pub fn new(
-        state_provider: Arc<dyn StateProvider>,
+        state_provider: Arc<dyn StateProvider + Send + Sync>,
         shared_cache: Arc<SharedCachedReads>,
     ) -> Self {
         Self {

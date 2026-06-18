@@ -214,8 +214,8 @@ impl TestSetup {
     }
     #[allow(clippy::result_large_err)]
     fn try_commit_order(&mut self) -> eyre::Result<Result<ExecutionResult, ExecutionError>> {
-        let state_provider: Arc<dyn StateProvider> =
-            Arc::from(self.test_chain.provider_factory().latest()?);
+        let state_provider: Arc<dyn StateProvider + Send + Sync> =
+            crate::provider::shared_state_provider(self.test_chain.provider_factory().latest()?);
         let mut local_ctx = ThreadBlockBuildingContext::default();
 
         let sim_order = SimulatedOrder::new(
@@ -299,8 +299,8 @@ impl TestSetup {
     }
 
     fn make_block_state(&self) -> eyre::Result<BlockState<CachedDB>> {
-        let state_provider: Arc<dyn StateProvider> =
-            Arc::from(self.test_chain.provider_factory().latest()?);
+        let state_provider: Arc<dyn StateProvider + Send + Sync> =
+            crate::provider::shared_state_provider(self.test_chain.provider_factory().latest()?);
         let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
         Ok(
             BlockState::new(cached)
