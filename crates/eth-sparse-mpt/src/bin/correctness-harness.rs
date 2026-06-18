@@ -354,9 +354,25 @@ fn calculate_reth_root(
         .with_context(|| format!("failed to open state provider at parent hash {parent_hash:?}"))?;
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let trie_input = TrieInput::from_state(hashed_post_state);
-    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze(), Default::default())
+    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze(), task_runtime())
         .incremental_root()
         .with_context(|| "parallel state root failed")
+}
+
+/// Process-wide reth task runtime for parallel provider/trie I/O. Built once and cached: the reth
+/// `Runtime` owns rayon thread pools, so it must not be rebuilt per call. `Runtime::default` is
+/// gated behind reth's `test-utils` feature, so build it explicitly here. The harness `main` is
+/// synchronous, so a standalone runtime (no ambient tokio handle) is what we want.
+fn task_runtime() -> rbuilder_utils::tasks::Runtime {
+    use rbuilder_utils::tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
+    static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            RuntimeBuilder::new(RuntimeConfig::default())
+                .build()
+                .expect("failed to build reth task runtime")
+        })
+        .clone()
 }
 
 fn run_unwind_once(cli: &Cli, iteration: usize) -> Result<()> {

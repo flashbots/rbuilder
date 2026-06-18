@@ -428,7 +428,9 @@ impl FlashbotsConfig {
             .with_password(config.password.value()?)
             .with_validation(false); // CRITICAL for U256 serialization.
 
-        let task_executor = rbuilder_utils::tasks::TaskExecutor::default();
+        let task_executor = rbuilder_utils::tasks::Runtime::with_existing_handle(
+            tokio::runtime::Handle::current(),
+        )?;
 
         let disk_backup = DiskBackup::new(
             DiskBackupConfig::new()

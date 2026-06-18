@@ -14,10 +14,7 @@ use alloy_primitives::{Address, BlockHash, BlockNumber, Bytes, B256};
 use eth_sparse_mpt::*;
 use parking_lot::Mutex;
 use rbuilder_utils::reth_db::open_rocksdb_read_only;
-use reth::{
-    providers::{BlockHashReader, ChainSpecProvider, ProviderFactory},
-    tasks::Runtime,
-};
+use reth::providers::{BlockHashReader, ChainSpecProvider, ProviderFactory};
 use reth_db::DatabaseError;
 use reth_errors::{ProviderError, ProviderResult, RethResult};
 use reth_node_api::{NodePrimitives, NodeTypesWithDB};
@@ -73,7 +70,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
             chain_spec.clone(),
             StaticFileProvider::read_only(static_files_path.as_path(), true).unwrap(),
             open_rocksdb_read_only(rocksdb_path.as_path())?,
-            Runtime::default(),
+            super::reth_task_runtime(),
         )?;
 
         Ok(Self {
@@ -137,7 +134,7 @@ impl<N: NodeTypesWithDB + ProviderNodeTypes + Clone> ProviderFactoryReopener<N> 
                     StaticFileProvider::read_only(reopen_paths.static_files_path.as_path(), true)
                         .unwrap(),
                     open_rocksdb_read_only(reopen_paths.rocksdb_path.as_path())?,
-                    Runtime::default(),
+                    super::reth_task_runtime(),
                 )?;
             }
         }

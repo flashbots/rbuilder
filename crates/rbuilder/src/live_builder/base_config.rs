@@ -645,7 +645,6 @@ pub fn coinbase_signer_from_secret_key(secret_key: &str) -> eyre::Result<Signer>
 mod test {
     use super::*;
     use reth::args::DatadirArgs;
-    use reth::tasks::Runtime;
     use reth_chainspec::{Chain, SEPOLIA};
     use reth_db::init_db;
     use reth_db_common::init::init_genesis;
@@ -700,7 +699,7 @@ mod test {
                 .with_default_tables()
                 .build()
                 .unwrap(),
-            Runtime::default(),
+            crate::utils::reth_task_runtime(),
         )
         .unwrap();
         init_genesis(&provider_factory).unwrap();

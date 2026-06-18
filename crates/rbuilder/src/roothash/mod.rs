@@ -3,7 +3,6 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{Address, Bytes, B256};
 use eth_sparse_mpt::*;
 use reth::providers::providers::ConsistentDbView;
-use reth::tasks::Runtime;
 use reth_provider::{
     providers::OverlayStateProviderFactory, BlockReader, ChangeSetReader, DBProvider,
     DatabaseProviderFactory, HashedPostStateProvider, PruneCheckpointReader, StageCheckpointReader,
@@ -149,7 +148,7 @@ where
         TrieInput::from_state(hashed_post_state)
             .prefix_sets
             .freeze(),
-        Runtime::default(),
+        crate::utils::reth_task_runtime(),
     );
     parallel_root_calculator.incremental_root()
 }
