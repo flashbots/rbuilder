@@ -1,0 +1,57 @@
+# Example rbuilder config for building Arc chain blocks (arc-rbuilder binary).
+#
+# Usage:
+#   cargo run -p arc-rbuilder -- node \
+#       --chain arc-testnet \
+#       --rbuilder.config crates/arc-rbuilder/config-arc-example.toml
+#
+# There are no relays and no bidding on Arc: blocks are delivered to Malachite
+# consensus through the engine API (engine_getPayload), so all MEV-Boost
+# related settings (relays, cl_node_url, relay secret keys) are unused.
+
+log_json = false
+log_level = "info,rbuilder=debug"
+error_storage_path = "/tmp/rbuilder.error.sqlite"
+
+# Address that collects priority fees while building; the block's true value
+# is paid to the proposer's suggested fee recipient with the payout tx.
+# env: COINBASE_SECRET_KEY
+coinbase_secret_key = "env:COINBASE_SECRET_KEY"
+
+# arc-rbuilder always builds for the chain the node runs (--chain flag); this
+# value only needs to parse. Keep it matching the node anyway.
+chain = "arc-localdev"
+
+full_telemetry_server_port = 6060
+redacted_telemetry_server_port = 6061
+
+# Order intake: the in-process txpool subscription is wired automatically;
+# these servers additionally accept bundles / raw txs over ipc/http.
+jsonrpc_server_port = 8645
+jsonrpc_server_ip = "0.0.0.0"
+ignore_cancellable_orders = true
+
+# Sub-second blocks: keep simulation lean.
+simulation_threads = 4
+
+live_builders = ["mp-ordering", "mgp-ordering"]
+
+# Required: sparse trie root hash (parallel impl currently disallowed).
+root_hash_use_sparse_trie = true
+root_hash_compare_sparse_trie = false
+
+[[builders]]
+name = "mgp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "mev-gas-price"
+failed_order_retries = 1
+drop_failed_orders = true
+
+[[builders]]
+name = "mp-ordering"
+algo = "ordering-builder"
+discard_txs = true
+sorting = "max-profit"
+failed_order_retries = 1
+drop_failed_orders = true

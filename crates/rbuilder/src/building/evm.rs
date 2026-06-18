@@ -60,6 +60,28 @@ pub trait EvmFactory {
         I: Inspector<EthEvmContext<DB>, EthInterpreter>;
 }
 
+/// EVM factory used by the block building code for the chain this binary was
+/// compiled for. See [`crate::chain`].
+#[cfg(not(feature = "arc"))]
+pub type ChainCachedEvmFactory = EthCachedEvmFactory;
+#[cfg(feature = "arc")]
+pub type ChainCachedEvmFactory = arc_factory::ArcCachedEvmFactory;
+
+/// Creates the chain-appropriate EVM factory for the building code.
+pub fn create_chain_evm_factory(
+    chain_spec: &std::sync::Arc<crate::chain::ChainSpec>,
+) -> ChainCachedEvmFactory {
+    #[cfg(not(feature = "arc"))]
+    {
+        let _ = chain_spec;
+        EthCachedEvmFactory::default()
+    }
+    #[cfg(feature = "arc")]
+    {
+        arc_factory::ArcCachedEvmFactory::new(chain_spec.clone())
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct EthCachedEvmFactory {
     evm_factory: EthEvmFactory,
@@ -112,5 +134,63 @@ impl EvmFactory for EthCachedEvmFactory {
                 .with_inspector(inspector),
             true,
         )
+    }
+}
+
+#[cfg(feature = "arc")]
+mod arc_factory {
+    use super::{Database, EthEvmContext, EvmEnv, EvmFactory, RethEvmFactory};
+    use crate::chain::ChainSpec;
+    use arc_evm::ArcEvmFactory;
+    use revm::{
+        inspector::NoOpInspector, interpreter::interpreter::EthInterpreter, Inspector,
+    };
+    use std::sync::Arc;
+
+    /// EVM factory for Arc.
+    ///
+    /// Unlike [`super::EthCachedEvmFactory`] this does NOT cache precompile
+    /// calls: several Arc precompiles (NativeCoinControl, SystemAccounting)
+    /// read contract storage, so caching results keyed only by input would
+    /// return stale data.
+    #[derive(Debug, Clone)]
+    pub struct ArcCachedEvmFactory {
+        evm_factory: ArcEvmFactory,
+    }
+
+    impl ArcCachedEvmFactory {
+        pub fn new(chain_spec: Arc<ChainSpec>) -> Self {
+            Self {
+                evm_factory: ArcEvmFactory::new(chain_spec),
+            }
+        }
+    }
+
+    impl EvmFactory for ArcCachedEvmFactory {
+        type Evm<DB, I>
+            = <ArcEvmFactory as RethEvmFactory>::Evm<DB, I>
+        where
+            DB: Database<Error: Send + Sync + 'static>,
+            I: Inspector<EthEvmContext<DB>>;
+
+        fn create_evm<DB>(&self, db: DB, env: EvmEnv) -> Self::Evm<DB, NoOpInspector>
+        where
+            DB: Database<Error: Send + Sync + 'static>,
+        {
+            self.evm_factory.create_evm(db, env)
+        }
+
+        fn create_evm_with_inspector<DB, I>(
+            &self,
+            db: DB,
+            env: EvmEnv,
+            inspector: I,
+        ) -> Self::Evm<DB, I>
+        where
+            DB: Database<Error: Send + Sync + 'static>,
+            I: Inspector<EthEvmContext<DB>, EthInterpreter>,
+        {
+            self.evm_factory.create_evm_with_inspector(db, env, inspector)
+        }
     }
 }

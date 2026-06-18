@@ -20,7 +20,8 @@ use reth::{
     providers::ProviderFactory,
     rpc::types::{engine::PayloadAttributes, Withdrawal},
 };
-use reth_chainspec::{ChainSpec, EthereumHardfork, MAINNET};
+use crate::chain::ChainSpec;
+use reth_chainspec::{EthChainSpec as _, EthereumHardfork, MAINNET};
 use reth_db::{cursor::DbCursorRW, tables, transaction::DbTxMut};
 use reth_errors::ProviderResult;
 use reth_primitives::{Recovered, TransactionSigned};
@@ -119,7 +120,9 @@ impl TestChainState {
         let blocklisted_address = Signer::random();
         let builder = Signer::random();
         let fee_recipient = Signer::random();
-        let chain_spec = MAINNET.clone();
+        let chain_spec = std::sync::Arc::new(crate::chain::chain_spec_from_inner(
+            MAINNET.as_ref().clone(),
+        ));
         let test_accounts = vec![
             Signer::random(),
             Signer::random(),
@@ -134,7 +137,7 @@ impl TestChainState {
         let mut contracts = extra_contracts;
         contracts.push(test_contracts.mev_test(mev_test_address));
 
-        let genesis_header = chain_spec.sealed_genesis_header();
+        let genesis_header = crate::chain::inner_chain_spec(&chain_spec).sealed_genesis_header();
         let provider_factory = create_test_provider_factory();
         {
             let provider = provider_factory.provider_rw()?;
@@ -240,7 +243,7 @@ impl TestChainState {
     // returns signed transaction
     pub fn sign_tx(&self, args: TxArgs) -> eyre::Result<Recovered<TransactionSigned>> {
         let tx = TxEip1559 {
-            chain_id: self.chain_spec.chain.id(),
+            chain_id: self.chain_spec.chain_id(),
             nonce: args.nonce,
             gas_limit: args.gas_limit,
             max_fee_per_gas: args.max_fee_per_gas,

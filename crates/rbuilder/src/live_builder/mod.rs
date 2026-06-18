@@ -33,19 +33,19 @@ use crate::{
 use alloy_consensus::Header;
 use alloy_primitives::{BlockHash, B256};
 use block_list_provider::BlockListProvider;
-use block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory;
+use block_output::UnfinishedBlockBuildingSinkFactory;
 use building::BlockBuildingPool;
 use eyre::Context;
 use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use order_input::{mempool_txs_detector::MempoolTxsDetector, ReplaceableOrderPoolCommand};
-use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
+use payload_events::{InternalPayloadId, SlotSource};
 use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
 use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
 };
-use reth_chainspec::ChainSpec;
+use crate::chain::ChainSpec;
 use reth_primitives::{Recovered, TransactionSigned};
 use std::{
     cmp::min,
@@ -93,6 +93,18 @@ impl TimingsConfig {
             get_block_header_period: time::Duration::milliseconds(25),
         }
     }
+
+    /// Configuration for Arc: sub-second blocks driven by the engine API.
+    /// The building job is cancelled anyway when the parent block changes,
+    /// so the proposal duration only caps how long we keep improving a
+    /// payload that consensus has not picked up yet.
+    pub fn arc() -> Self {
+        Self {
+            slot_proposal_duration: Duration::from_secs(2),
+            block_header_deadline_delta: time::Duration::milliseconds(-25),
+            get_block_header_period: time::Duration::milliseconds(10),
+        }
+    }
 }
 
 /// Max headers sent to the cleaning task before the main loop blocks.
@@ -112,7 +124,7 @@ where
     pub error_storage_path: Option<PathBuf>,
     pub simulation_threads: usize,
     pub order_input_config: OrderInputConfig,
-    pub blocks_source: MevBoostSlotDataGenerator,
+    pub blocks_source: SlotSource,
     pub run_sparse_trie_prefetcher: bool,
 
     pub chain_chain_spec: Arc<ChainSpec>,
@@ -133,7 +145,7 @@ where
     /// We should try to wait for these tasks to finish before shutting down to avoid data corruption.
     pub critical_tasks_join_handles: Vec<JoinHandle<()>>,
 
-    pub unfinished_built_blocks_input_factory: UnfinishedBuiltBlocksInputFactory<P>,
+    pub unfinished_built_blocks_input_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     pub builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
     pub extra_rpc: RpcModule<()>,
 
@@ -433,7 +445,9 @@ where
     // used in the optimism context. If further customisation is required in the future
     // this should be improved on.
     fn timings(&self) -> TimingsConfig {
-        if cfg!(feature = "optimism") {
+        if cfg!(feature = "arc") {
+            TimingsConfig::arc()
+        } else if cfg!(feature = "optimism") {
             TimingsConfig::optimism()
         } else {
             TimingsConfig::ethereum()

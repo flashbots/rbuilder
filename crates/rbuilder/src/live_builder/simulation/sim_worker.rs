@@ -107,7 +107,10 @@ pub fn run_sim_worker<P>(
 
                                 true
                             }
-                            OrderSimResult::Failed(_) => false,
+                            OrderSimResult::Failed(err) => {
+                                tracing::trace!(?order_id, ?err, "Order simulation failed");
+                                false
+                            }
                         };
                         telemetry::inc_simulated_orders(sim_ok);
                         telemetry::inc_simulation_gas_used(sim_result.gas_used);

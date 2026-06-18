@@ -11,7 +11,7 @@ use crate::{
         BlockBuildingContext, BuiltBlockTrace, SimulatedOrderSink,
     },
     live_builder::{
-        block_output::unfinished_block_processing::UnfinishedBuiltBlocksInput,
+        block_output::UnfinishedBlockBuildingSink,
         building::built_block_cache::BuiltBlockCache, payload_events::InternalPayloadId,
         simulation::SimulatedOrderCommand,
     },
@@ -95,7 +95,7 @@ pub struct LiveBuilderInput<P> {
     pub provider: P,
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
-    pub sink: UnfinishedBuiltBlocksInput,
+    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     pub builder_name: String,
     pub cancel: CancellationToken,
     pub built_block_cache: Arc<BuiltBlockCache>,
@@ -271,7 +271,7 @@ pub struct BlockBuildingAlgorithmInput<P> {
     pub ctx: BlockBuildingContext,
     pub input: broadcast::Receiver<SimulatedOrderJournalCommand>,
     /// output for the blocks
-    pub sink: UnfinishedBuiltBlocksInput,
+    pub sink: Arc<dyn UnfinishedBlockBuildingSink>,
     /// A cache common to several builders so they can optimize their work looking at other builders blocks.
     pub built_block_cache: Arc<BuiltBlockCache>,
     pub cancel: CancellationToken,

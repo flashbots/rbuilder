@@ -40,6 +40,13 @@ reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
 revm.workspace = true
 reth-node-ethereum.workspace = true
+reth-ethereum-engine-primitives.workspace = true
+
+# Arc chain support (enabled with the `arc` feature)
+arc-evm = { workspace = true, optional = true }
+arc-execution-config = { workspace = true, optional = true }
+arc-precompiles = { workspace = true, optional = true }
+reth-cli = { workspace = true, optional = true }
 
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
@@ -149,6 +156,9 @@ assert_matches = "1.5.0"
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 
 [features]
+# Build blocks for the Arc chain (arc-node) instead of Ethereum mainnet.
+# Swaps ChainSpec/EvmConfig/EvmFactory for the Arc implementations at compile time.
+arc = ["dep:arc-evm", "dep:arc-execution-config", "dep:arc-precompiles", "dep:reth-cli"]
 # TODO: remove?
 optimism = []
 redact-sensitive = []

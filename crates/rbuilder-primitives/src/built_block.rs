@@ -20,7 +20,7 @@ use alloy_rpc_types_engine::{
     BlobsBundleV1, BlobsBundleV2, ExecutionPayload, ExecutionPayloadV1, ExecutionPayloadV2,
     ExecutionPayloadV3,
 };
-use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_chainspec::EthereumHardforks;
 use reth_primitives::SealedBlock;
 use std::sync::Arc;
 
@@ -35,7 +35,10 @@ pub struct SignedBuiltBlock {
 
 impl SignedBuiltBlock {
     /// Convert the signed block into [`SubmitBlockRequest`](`alloy_rpc_types_beacon::relay::SubmitBlockRequest`).
-    pub fn into_request(self, chain_spec: &ChainSpec) -> eyre::Result<AlloySubmitBlockRequest> {
+    pub fn into_request(
+        self,
+        chain_spec: &impl EthereumHardforks,
+    ) -> eyre::Result<AlloySubmitBlockRequest> {
         match self.execution_payload {
             ExecutionPayload::V1(_v1) => {
                 eyre::bail!("v1 payloads are not supported");
@@ -153,7 +156,7 @@ fn marshall_txs_blobs_sidecars_v2(
 
 /// Utility function to convert built block to execution payload.
 pub fn block_to_execution_payload(
-    chain_spec: &ChainSpec,
+    chain_spec: &impl EthereumHardforks,
     attrs: &PayloadAttributesData,
     sealed_block: &SealedBlock,
 ) -> ExecutionPayload {

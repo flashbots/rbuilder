@@ -186,7 +186,7 @@ impl StateProvider for SyncStateProvider {
 /// Main trait to interact with the chain data.
 /// Allows to create different backends for chain data access without implementing lots of interfaces as would happen with reth_provider::StateProviderFactory
 /// since it only asks for what we really use.
-pub trait StateProviderFactory: Send + Sync {
+pub trait StateProviderFactory: Send + Sync + std::fmt::Debug {
     fn latest(&self) -> ProviderResult<StateProviderBox>;
 
     fn history_by_block_number(&self, block: BlockNumber) -> ProviderResult<StateProviderBox>;

@@ -18,10 +18,9 @@ use rbuilder::{
     provider::StateProviderFactory,
     utils::ProviderFactoryReopener,
 };
-use reth::chainspec::chain_value_parser;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
+use rbuilder::chain::DbNodeTypes as EthereumNode;
 use serde::Deserialize;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time;
@@ -148,7 +147,8 @@ fn create_provider_from_reth_path(
     reth_path: PathBuf,
     chain: &str,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
-    let chain_spec = chain_value_parser(chain).context("Failed to parse chain name")?;
+    let chain_spec =
+        rbuilder::chain::parse_chain_spec(chain).context("Failed to parse chain name")?;
 
     // We don't need root hash computation for monitoring, so we pass None
     let provider = create_provider_factory(

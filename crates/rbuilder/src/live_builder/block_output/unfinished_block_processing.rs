@@ -52,6 +52,7 @@ use crate::{
 
 use super::{
     best_block_from_algorithms::BestBlockFromAlgorithms,
+    UnfinishedBlockBuildingSink, UnfinishedBlockBuildingSinkFactory,
     bidding_service_interface::{
         BiddingService, BlockSealInterfaceForSlotBidder, BuiltBlockDescriptorForSlotBidder,
         SlotBidder, SlotBidderSealBidCommand,
@@ -693,4 +694,28 @@ fn create_logging_span(block_helper: &dyn BlockBuildingHelper) -> tracing::Span 
         builder_name,
         true_block_value
     )
+}
+
+impl UnfinishedBlockBuildingSink for UnfinishedBuiltBlocksInput {
+    fn new_block(&self, block: BiddableUnfinishedBlock) {
+        UnfinishedBuiltBlocksInput::new_block(self, block)
+    }
+}
+
+impl<P: StateProviderFactory> UnfinishedBlockBuildingSinkFactory
+    for UnfinishedBuiltBlocksInputFactory<P>
+{
+    fn create_sink(
+        &mut self,
+        slot_data: MevBoostSlotData,
+        built_block_cache: Arc<BuiltBlockCache>,
+        cancel: CancellationToken,
+    ) -> Arc<dyn UnfinishedBlockBuildingSink> {
+        Arc::new(UnfinishedBuiltBlocksInputFactory::create_sink(
+            self,
+            slot_data,
+            built_block_cache,
+            cancel,
+        ))
+    }
 }

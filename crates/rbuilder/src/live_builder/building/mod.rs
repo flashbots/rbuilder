@@ -34,7 +34,7 @@ const CHECK_LAST_BLOCK_INTERVAL: Duration = Duration::from_millis(100);
 const SIMULATED_ORDERS_CHANNEL_CAPACITY: usize = 10_000;
 
 use super::{
-    block_output::unfinished_block_processing::UnfinishedBuiltBlocksInputFactory,
+    block_output::UnfinishedBlockBuildingSinkFactory,
     order_input::{
         self, order_replacement_manager::OrderReplacementManager, orderpool::OrdersForBlock,
     },
@@ -47,7 +47,7 @@ use super::{
 pub struct BlockBuildingPool<P> {
     provider: P,
     builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-    sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
+    sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
     orderpool_subscriber: order_input::OrderPoolSubscriber,
     order_simulation_pool: OrderSimulationPool<P>,
     run_sparse_trie_prefetcher: bool,
@@ -64,7 +64,7 @@ where
     pub fn new(
         provider: P,
         builders: Vec<Arc<dyn BlockBuildingAlgorithm<P>>>,
-        sink_factory: UnfinishedBuiltBlocksInputFactory<P>,
+        sink_factory: Box<dyn UnfinishedBlockBuildingSinkFactory>,
         orderpool_subscriber: order_input::OrderPoolSubscriber,
         order_simulation_pool: OrderSimulationPool<P>,
         run_sparse_trie_prefetcher: bool,

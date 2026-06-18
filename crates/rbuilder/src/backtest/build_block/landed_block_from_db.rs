@@ -12,7 +12,7 @@ use rbuilder_config::load_toml_config;
 use rbuilder_primitives::OrderId;
 use reth_db::DatabaseEnv;
 use reth_node_api::NodeTypesWithDBAdapter;
-use reth_node_ethereum::EthereumNode;
+use crate::chain::DbNodeTypes;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -105,7 +105,7 @@ impl<ConfigType: LiveBuilderConfig> LandedBlockFromDBOrdersSource<ConfigType> {
 impl<ConfigType: LiveBuilderConfig>
     OrdersSource<
         ConfigType,
-        ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
+        ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>,
     > for LandedBlockFromDBOrdersSource<ConfigType>
 {
     fn available_orders(&self) -> Vec<OrdersWithTimestamp> {
@@ -118,7 +118,7 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn create_provider_factory(
         &self,
-    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>>
+    ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>>
     {
         self.config.base_config().create_reth_provider_factory(true)
     }
@@ -145,7 +145,7 @@ impl<ConfigType: LiveBuilderConfig>
 
     fn print_custom_stats(
         &self,
-        provider: ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>,
+        provider: ProviderFactoryReopener<NodeTypesWithDBAdapter<DbNodeTypes, Arc<DatabaseEnv>>>,
     ) -> eyre::Result<()> {
         if self.sim_landed_block {
             let tx_sim_results = sim_historical_block(
