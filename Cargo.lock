@@ -969,7 +969,7 @@ dependencies = [
  "arbitrary",
  "derive_arbitrary",
  "derive_more 2.1.0",
- "nybbles 0.4.8",
+ "nybbles",
  "proptest",
  "proptest-derive 0.7.0",
  "serde",
@@ -4009,7 +4009,7 @@ dependencies = [
  "eyre",
  "flate2",
  "hash-db",
- "nybbles 0.3.4",
+ "nybbles",
  "parking_lot",
  "proptest",
  "rand 0.8.5",
@@ -7916,19 +7916,6 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "nybbles"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8983bb634df7248924ee0c4c3a749609b5abcb082c28fffe3254b3eb3602b307"
-dependencies = [
- "alloy-rlp",
- "const-hex",
- "proptest",
- "serde",
- "smallvec",
-]
-
-[[package]]
-name = "nybbles"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d49ff0c0d00d4a502b39df9af3a525e1efeb14b9dabb5bb83335284c1309210"
@@ -11439,7 +11426,7 @@ dependencies = [
  "alloy-evm",
  "alloy-primitives 1.6.0",
  "alloy-rlp",
- "nybbles 0.4.8",
+ "nybbles",
  "reth-storage-errors",
  "thiserror 2.0.17",
 ]
@@ -12924,7 +12911,7 @@ dependencies = [
  "derive_more 2.1.0",
  "hash-db",
  "itertools 0.14.0",
- "nybbles 0.4.8",
+ "nybbles",
  "plain_hasher",
  "rayon",
  "reth-codecs",

@@ -1,4 +1,4 @@
-use crate::utils::{convert_reth_nybbles_to_nibbles, fast_hash, hash_map_with_capacity, HashMap};
+use crate::utils::{fast_hash, hash_map_with_capacity, HashMap};
 use alloy_primitives::{keccak256, Bytes, B256};
 use alloy_rlp::Decodable;
 use alloy_trie::nodes::{
@@ -89,7 +89,7 @@ pub struct FixedLeafNode {
 impl From<AlloyLeafNode> for FixedLeafNode {
     fn from(alloy_leaf_node: AlloyLeafNode) -> Self {
         Self {
-            key: convert_reth_nybbles_to_nibbles(alloy_leaf_node.key),
+            key: alloy_leaf_node.key,
             value: alloy_leaf_node.value.into(),
         }
     }
@@ -133,7 +133,7 @@ pub struct FixedExtensionNode {
 impl From<AlloyExtensionNode> for FixedExtensionNode {
     fn from(alloy_extension_node: AlloyExtensionNode) -> Self {
         Self {
-            key: convert_reth_nybbles_to_nibbles(alloy_extension_node.key),
+            key: alloy_extension_node.key,
             child: Bytes::copy_from_slice(alloy_extension_node.child.as_ref()),
         }
     }
@@ -167,12 +167,12 @@ impl FixedTrie {
         for (ptr, node) in &diff_trie.nodes {
             let fixed_node = match &node.kind {
                 DiffTrieNodeKind::Leaf(leaf) => FixedTrieNode::Leaf(Arc::new(FixedLeafNode {
-                    key: leaf.key().clone(),
+                    key: *leaf.key(),
                     value: leaf.value().clone(),
                 })),
                 DiffTrieNodeKind::Extension(ext) => FixedTrieNode::Extension {
                     node: Arc::new(FixedExtensionNode {
-                        key: ext.key().clone(),
+                        key: *ext.key(),
                         child: ext
                             .child
                             .rlp_pointer
@@ -261,7 +261,7 @@ impl FixedTrie {
 
             // here we find parent to link with this new node
             let mut current_path = Nibbles::new();
-            let mut path_left = path.clone();
+            let mut path_left = *path;
             let mut current_node = self.head;
 
             let mut parent: Option<u64> = None;
@@ -286,8 +286,8 @@ impl FixedTrie {
                             parent_child_idx = None;
 
                             let len = node.key.len();
-                            current_path.extend_from_slice_unchecked(&path_left[..len]);
-                            path_left.as_mut_vec_unchecked().drain(..len);
+                            current_path.extend(&path_left.slice_unchecked(0, len));
+                            path_left = path_left.slice_unchecked(len, path_left.len());
 
                             if path_left.is_empty() {
                                 break;
@@ -455,11 +455,9 @@ impl FixedTrie {
                                         // orphan node is missing
                                         // we stepped into child above so the path is the path of current child and orphan child differs
                                         // only in last nibble
-                                        let mut path = c.current_path.clone();
-                                        path.as_mut_vec_unchecked()
-                                            .last_mut()
-                                            .map(|n| *n = orphan_nibble)
-                                            .unwrap();
+                                        let mut path = c.current_path;
+                                        let last_idx = path.len() - 1;
+                                        path.set_at(last_idx, orphan_nibble);
                                         missing_nodes.push(path);
                                     }
                                 }
@@ -498,8 +496,8 @@ mod tests {
                 .into_iter()
                 .flat_map(|mp| mp.account_subtree.into_iter().collect::<Vec<_>>())
                 .collect();
-            account_proof.sort_by_key(|(p, _)| p.clone());
-            account_proof.dedup_by_key(|(p, _)| p.clone());
+            account_proof.sort_by_key(|(p, _)| *p);
+            account_proof.dedup_by_key(|(p, _)| *p);
             account_proof
         };
 

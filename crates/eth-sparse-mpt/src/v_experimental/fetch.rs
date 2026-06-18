@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    utils::{convert_nibbles_to_reth_nybbles, convert_reth_nybbles_to_nibbles, HashMap},
-    SparseTrieError,
-};
+use crate::{utils::HashMap, SparseTrieError};
 use alloy_primitives::map::B256Set;
 use parking_lot::Mutex;
 use rayon::prelude::*;
@@ -39,12 +36,12 @@ impl MissingNodesFetcher {
             .storage_proof_targets
             .entry(*hashed_address)
             .or_default();
-        entry.0.insert(pad_path(node.clone()));
+        entry.0.insert(pad_path(node));
         entry.1.push(node);
     }
 
     pub fn add_missing_account_node(&mut self, node: Nibbles) {
-        self.account_proof_targets.push(pad_path(node.clone()));
+        self.account_proof_targets.push(pad_path(node));
         self.account_proof_requested_nodes.push(node);
     }
 
@@ -89,17 +86,13 @@ impl MissingNodesFetcher {
                         .map_err(SparseTrieError::other)?;
                     *fetched_nodes.lock() += requested_proofs.len();
                     for requested_proof in requested_proofs {
-                        let proof_for_node = storge_multiproof.subtree.matching_nodes_sorted(
-                            &convert_nibbles_to_reth_nybbles(requested_proof.clone()),
-                        );
-                        let reth_proof_for_node = proof_for_node
-                            .into_iter()
-                            .map(|(k, v)| (convert_reth_nybbles_to_nibbles(k), v))
-                            .collect();
+                        let proof_for_node = storge_multiproof
+                            .subtree
+                            .matching_nodes_sorted(&requested_proof);
                         let proof_store =
                             shared_cache.account_proof_store_hashed_address(&hashed_address);
                         proof_store
-                            .add_proof(requested_proof, reth_proof_for_node)
+                            .add_proof(requested_proof, proof_for_node)
                             .map_err(SparseTrieError::other)?;
                     }
                     Ok(())
@@ -133,15 +126,11 @@ impl MissingNodesFetcher {
         for requested_node in self.account_proof_requested_nodes.drain(..) {
             let proof_for_node = multiproof
                 .account_subtree
-                .matching_nodes_sorted(&convert_nibbles_to_reth_nybbles(requested_node.clone()));
+                .matching_nodes_sorted(&requested_node);
 
-            let reth_proof_for_node = proof_for_node
-                .into_iter()
-                .map(|(k, v)| (convert_reth_nybbles_to_nibbles(k), v))
-                .collect();
             shared_cache
                 .account_trie
-                .add_proof(requested_node, reth_proof_for_node)
+                .add_proof(requested_node, proof_for_node)
                 .map_err(SparseTrieError::other)?;
         }
         let fetched_nodes = *fetched_nodes.lock();
@@ -150,7 +139,9 @@ impl MissingNodesFetcher {
 }
 
 fn pad_path(mut path: Nibbles) -> B256 {
-    path.as_mut_vec_unchecked().resize(64, 0);
+    while path.len() < 64 {
+        path.push_unchecked(0);
+    }
     let mut res = B256::default();
     path.pack_to(res.as_mut_slice());
     res
