@@ -564,7 +564,6 @@ pub fn create_provider_factory(
     rw: bool,
     root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
-    tracing::info!(?reth_datadir, "AAAAAAAAAAAA!!!!!!!!!");
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
         let reth_datadir = reth_datadir
@@ -596,15 +595,14 @@ pub fn create_provider_factory(
         }
     };
 
-    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir.clone()) {
+    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir) {
         (Some(reth_rocksdb_path), _) => PathBuf::from(reth_rocksdb_path),
         (None, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
         (None, None) => {
             eyre::bail!("Either reth_rocksdb_path or reth_datadir must be provided")
         }
     };
-    let a = reth_datadir.unwrap_or("NADA".into());
-    tracing::info!(?reth_rocksdb_path, ?a, "Using RockDB path");
+
     let provider_factory_reopener = ProviderFactoryReopener::new(
         db,
         chain_spec,
