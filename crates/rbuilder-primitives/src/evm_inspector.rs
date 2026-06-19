@@ -1,7 +1,6 @@
 use ahash::HashMap;
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
-use alloy_rpc_types::AccessList;
 use reth_primitives::{Recovered, TransactionSigned};
 use revm::{
     bytecode::opcode,
@@ -10,7 +9,6 @@ use revm::{
     interpreter::{interpreter_types::Jumps, CallInputs, CallOutcome, Interpreter},
     Inspector,
 };
-use revm_inspectors::access_list::AccessListInspector;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SlotKey {
@@ -257,7 +255,6 @@ where
 
 #[derive(Debug)]
 pub struct RBuilderEVMInspector<'a> {
-    access_list_inspector: AccessListInspector,
     used_state_inspector: Option<UsedStateEVMInspector<'a>>,
 }
 
@@ -266,22 +263,14 @@ impl<'a> RBuilderEVMInspector<'a> {
         tx: &Recovered<TransactionSigned>,
         used_state_trace: Option<&'a mut UsedStateTrace>,
     ) -> Self {
-        let access_list_inspector =
-            AccessListInspector::new(tx.access_list().cloned().unwrap_or_default());
-
         let mut used_state_inspector = used_state_trace.map(UsedStateEVMInspector::new);
         if let Some(i) = &mut used_state_inspector {
             i.use_tx_nonce(tx);
         }
 
         Self {
-            access_list_inspector,
             used_state_inspector,
         }
-    }
-
-    pub fn into_access_list(self) -> AccessList {
-        self.access_list_inspector.into_access_list()
     }
 }
 
@@ -292,7 +281,6 @@ where
 {
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        self.access_list_inspector.step(interp, context);
         if let Some(used_state_inspector) = &mut self.used_state_inspector {
             used_state_inspector.step(interp, context);
         }
