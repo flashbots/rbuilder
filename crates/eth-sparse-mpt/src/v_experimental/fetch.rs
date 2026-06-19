@@ -138,10 +138,9 @@ impl MissingNodesFetcher {
     }
 }
 
-fn pad_path(mut path: Nibbles) -> B256 {
-    while path.len() < 64 {
-        path.push_unchecked(0);
-    }
+fn pad_path(path: Nibbles) -> B256 {
+    // `pack_to` writes left-aligned into the zeroed buffer, leaving trailing
+    // bytes zero, so explicit right-padding to 64 nibbles is unnecessary.
     let mut res = B256::default();
     path.pack_to(res.as_mut_slice());
     res
