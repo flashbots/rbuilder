@@ -476,7 +476,6 @@ impl BaseConfig {
 pub const DEFAULT_CL_NODE_URL: &str = "http://127.0.0.1:3500";
 pub const DEFAULT_EL_NODE_IPC_PATH: &str = "/tmp/reth.ipc";
 pub const DEFAULT_INCOMING_BUNDLES_PORT: u16 = 8645;
-pub const DEFAULT_RETH_DB_PATH: &str = "/mnt/data/reth";
 /// This will update every 2.4 hours, super reasonable.
 pub const DEFAULT_BLOCKLIST_URL_MAX_AGE_HOURS: u64 = 24;
 pub const DEFAULT_REQUIRE_NON_EMPTY_BLOCKLIST: bool = false;
@@ -502,7 +501,7 @@ impl Default for BaseConfig {
             ignore_cancellable_orders: true,
             ignore_blobs: false,
             chain: "mainnet".to_string(),
-            reth_datadir: Some(DEFAULT_RETH_DB_PATH.parse().unwrap()),
+            reth_datadir: None,
             reth_db_path: None,
             reth_static_files_path: None,
             reth_rocksdb_path: None,
@@ -565,6 +564,7 @@ pub fn create_provider_factory(
     rw: bool,
     root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
+    tracing::info!(?reth_datadir, "AAAAAAAAAAAA!!!!!!!!!");
     // shellexpand the reth datadir
     let reth_datadir = if let Some(reth_datadir) = reth_datadir {
         let reth_datadir = reth_datadir
@@ -596,14 +596,15 @@ pub fn create_provider_factory(
         }
     };
 
-    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir) {
+    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir.clone()) {
         (Some(reth_rocksdb_path), _) => PathBuf::from(reth_rocksdb_path),
         (None, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
         (None, None) => {
             eyre::bail!("Either reth_rocksdb_path or reth_datadir must be provided")
         }
     };
-
+    let a = reth_datadir.unwrap_or("NADA".into());
+    tracing::info!(?reth_rocksdb_path, ?a, "Using RockDB path");
     let provider_factory_reopener = ProviderFactoryReopener::new(
         db,
         chain_spec,
