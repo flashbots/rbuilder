@@ -50,6 +50,21 @@ pub fn run_sim_worker<P>(
 
         let mut last_sim_finished = Instant::now();
 
+        // Open one state provider for the whole context and reuse it (and its shared read cache)
+        // across every order.
+        let state_provider =
+            match provider.history_by_block_hash(current_sim_context.block_ctx.attributes.parent) {
+                Ok(state_provider) => state_provider,
+                Err(err) => {
+                    error!(?err, "Error while getting state for block");
+                    continue;
+                }
+            };
+        let mut cached = CachedDB::new(
+            state_provider,
+            current_sim_context.block_ctx.shared_cached_reads.clone(),
+        );
+
         while let Ok(cancellable_task) = current_sim_context.requests.recv() {
             // Avoid starting sims when the output channel is closed.
             if current_sim_context.results.is_closed() {
@@ -61,19 +76,6 @@ pub fn run_sim_worker<P>(
 
                 let order_id = task.order.id();
                 let start_time = Instant::now();
-                let state_provider = match provider
-                    .history_by_block_hash(current_sim_context.block_ctx.attributes.parent)
-                {
-                    Ok(state_provider) => state_provider,
-                    Err(err) => {
-                        error!(?err, "Error while getting state for block");
-                        break;
-                    }
-                };
-                let cached = CachedDB::new(
-                    state_provider,
-                    current_sim_context.block_ctx.shared_cached_reads.clone(),
-                );
                 let mut block_state = BlockState::new(cached);
                 let sim_result = simulate_order(
                     task.parents.clone(),
@@ -82,6 +84,8 @@ pub fn run_sim_worker<P>(
                     &mut local_ctx,
                     &mut block_state,
                 );
+                // Reclaim the cache (live provider + shared reads) for the next order.
+                cached = block_state.into_db();
                 let sim_ok = match sim_result {
                     Ok(sim_result) => {
                         let sim_ok = match sim_result.result {
