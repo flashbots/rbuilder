@@ -268,7 +268,7 @@ impl DiskBackup {
             config,
         };
 
-        task_executor.spawn({
+        task_executor.spawn_task({
             let disk_backup: Self = disk_backup.clone();
             async move {
                 disk_backup.flush_routine().await;

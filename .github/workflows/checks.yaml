@@ -87,7 +87,8 @@ jobs:
       - name: Download builder playground
         uses: flashbots/flashbots-toolchain@v0.1
         with:
-          builder-playground: v0.3.1
+          # v0.3.3+ supports custom recipes with a `release` override (used to pin reth to 1.11.x).
+          builder-playground: v0.3.3
 
       # https://github.com/swatinem/rust-cache
       - name: Run Swatinem/rust-cache@v2
@@ -112,7 +113,7 @@ jobs:
 
       - name: Run the playground
         run: |
-          builder-playground start l1 --use-native-reth > /tmp/playground.log 2>&1 &
+          builder-playground start crates/rbuilder/src/integration/test_data/playground.yaml > /tmp/playground.log 2>&1 &
           PLAYGROUND_PID=$!
           echo "Waiting for all services to be healthy..."
           timeout=60  # 1 minutes timeout

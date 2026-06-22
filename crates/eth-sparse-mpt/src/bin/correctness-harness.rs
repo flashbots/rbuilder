@@ -14,12 +14,13 @@ use reth_evm_ethereum::EthEvmConfig;
 use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_ethereum::EthereumNode;
 use reth_provider::{
-    providers::{ConsistentDbView, OverlayStateProviderFactory, StaticFileProvider},
+    providers::{ConsistentDbView, OverlayStateProviderFactory, StaticFileProviderBuilder},
     BlockHashReader, BlockNumReader, BlockReader, ChainSpecProvider, HeaderProvider,
     ProviderFactory, TransactionVariant,
 };
 use reth_revm::database::StateProviderDatabase;
 use reth_trie::TrieInput;
+use reth_trie_db::ChangesetCache;
 use reth_trie_parallel::root::ParallelStateRoot;
 use revm::database::BundleState;
 use std::{
@@ -347,15 +348,31 @@ fn calculate_reth_root(
     parent_hash: B256,
     outcome: &BundleState,
 ) -> Result<B256> {
-    let overlay = OverlayStateProviderFactory::new(factory.clone());
+    let overlay = OverlayStateProviderFactory::new(factory.clone(), ChangesetCache::new());
     let hasher = factory
         .history_by_block_hash(parent_hash)
         .with_context(|| format!("failed to open state provider at parent hash {parent_hash:?}"))?;
     let hashed_post_state = hasher.hashed_post_state(outcome);
     let trie_input = TrieInput::from_state(hashed_post_state);
-    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze())
+    ParallelStateRoot::new(overlay, trie_input.prefix_sets.freeze(), task_runtime())
         .incremental_root()
         .with_context(|| "parallel state root failed")
+}
+
+/// Process-wide reth task runtime for parallel provider/trie I/O. Built once and cached: the reth
+/// `Runtime` owns rayon thread pools, so it must not be rebuilt per call. `Runtime::default` is
+/// gated behind reth's `test-utils` feature, so build it explicitly here. The harness `main` is
+/// synchronous, so a standalone runtime (no ambient tokio handle) is what we want.
+fn task_runtime() -> rbuilder_utils::tasks::Runtime {
+    use rbuilder_utils::tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
+    static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            RuntimeBuilder::new(RuntimeConfig::default())
+                .build()
+                .expect("failed to build reth task runtime")
+        })
+        .clone()
 }
 
 fn run_unwind_once(cli: &Cli, iteration: usize) -> Result<()> {
@@ -390,6 +407,7 @@ fn open_provider_factory(
 ) -> Result<Factory> {
     let db_path = datadir.join("db");
     let static_files_path = datadir.join("static_files");
+    let rocksdb_path = datadir.join("rocksdb");
     let chain_spec = parse_chain_spec(chain)?;
 
     let db = Arc::new(
@@ -403,24 +421,32 @@ fn open_provider_factory(
         .with_context(|| format!("failed to open reth db at {}", db_path.display()))?,
     );
 
-    let static_files =
-        StaticFileProvider::read_only(&static_files_path, false).with_context(|| {
+    // Configuring blocks-per-file now goes through `StaticFileProviderBuilder` (the inherent
+    // `with_custom_blocks_per_file` on `StaticFileProvider` was replaced by the builder's
+    // `with_blocks_per_file`, which sets the value across all segments).
+    let static_files = {
+        let builder = StaticFileProviderBuilder::read_only(&static_files_path);
+        let builder = if let Some(blocks_per_file) = static_file_blocks_per_file {
+            builder.with_blocks_per_file(blocks_per_file)
+        } else {
+            builder
+        };
+        builder.build().with_context(|| {
             format!(
                 "failed to open static files at {}",
                 static_files_path.display()
             )
-        })?;
-    let static_files = if let Some(blocks_per_file) = static_file_blocks_per_file {
-        static_files.with_custom_blocks_per_file(blocks_per_file)
-    } else {
-        static_files
+        })?
     };
 
-    Ok(ProviderFactory::<NodeTypes>::new(
+    ProviderFactory::<NodeTypes>::new(
         db,
         chain_spec,
         static_files,
-    ))
+        rbuilder_utils::reth_db::open_rocksdb_read_only(&rocksdb_path)?,
+        Default::default(),
+    )
+    .with_context(|| "failed to create provider factory")
 }
 
 fn parse_chain_spec(chain: &str) -> Result<Arc<ChainSpec>> {

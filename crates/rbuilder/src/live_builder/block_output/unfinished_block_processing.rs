@@ -197,7 +197,7 @@ impl PrefinalizedBlockInner {
             } else {
                 // we clone here because finalizing block multiple times is not supported
                 self.block_building_helper
-                    .box_clone()
+                    .try_clone()?
                     .finalize_block(local_ctx, value, subsidy, competition_bid_context)
                     .map(Some)
             }
@@ -273,7 +273,7 @@ impl MultiPrefinalizedBlock {
         sent_to_bidder: OffsetDateTime,
         block_building_helper: Box<dyn BlockBuildingHelper>,
         local_ctx: ThreadBlockBuildingContext,
-    ) -> Self {
+    ) -> Result<Self, BlockBuildingHelperError> {
         let start = Instant::now();
         let last_index = last_finalize_commands.len() - 1;
         let mut prefinalized_blocks_by_relay_set = HashMap::default();
@@ -299,7 +299,7 @@ impl MultiPrefinalizedBlock {
         {
             if index != last_index {
                 insert_prefinalized_block(
-                    block_building_helper.box_clone(),
+                    block_building_helper.try_clone()?,
                     local_ctx.clone(),
                     relay_set.clone(),
                     last_finalize_command.clone(),
@@ -317,11 +317,11 @@ impl MultiPrefinalizedBlock {
 
         let creation_duration = start.elapsed();
         add_block_multi_bid_copy_duration(creation_duration);
-        Self {
+        Ok(Self {
             block_id,
             prefinalized_blocks_by_relay_set,
             creation_duration,
-        }
+        })
     }
 }
 
@@ -397,18 +397,21 @@ impl UnfinishedBuiltBlocksInput {
         }
     }
 
-    pub fn new_block(&self, block: BiddableUnfinishedBlock) {
+    pub fn new_block(
+        &self,
+        block: BiddableUnfinishedBlock,
+    ) -> Result<(), BlockBuildingHelperError> {
         self.built_block_cache
             .update_from_new_unfinished_block(block.block());
 
         let mut block = if let Some(block) = self
             .best_block_from_algorithms
             .lock()
-            .update_with_new_block(block)
+            .update_with_new_block(block)?
         {
             block
         } else {
-            return;
+            return Ok(());
         };
         block.chosen_as_best_at = OffsetDateTime::now_utc();
         info!(block_id=block.id().0,true_block_value = ?block.true_block_value,chosen_as_best_at=?block.chosen_as_best_at,algo=block.block.builder_name(), "New best block chosen");
@@ -420,6 +423,7 @@ impl UnfinishedBuiltBlocksInput {
 
         // update last_unfinalized_block
         self.last_unfinalized_block.set(block);
+        Ok(())
     }
 
     fn seal_command(&self, bid: SlotBidderSealBidCommand) {
@@ -574,14 +578,22 @@ impl UnfinishedBuiltBlocksInput {
             }
 
             //let multi_prefinalized_block = MultiPrefinalizedBlock::new_single_prefinalized_block(
-            let multi_prefinalized_block = MultiPrefinalizedBlock::new(
+            let multi_prefinalized_block = match MultiPrefinalizedBlock::new(
                 block_id,
                 &self.last_finalize_commands,
                 chosen_as_best_at,
                 OffsetDateTime::now_utc(),
                 block_building_helper,
                 local_ctx,
-            );
+            ) {
+                Ok(multi_prefinalized_block) => multi_prefinalized_block,
+                Err(err) => {
+                    if err.is_critical() {
+                        error!(?err, "Failed to create multi prefinalized block");
+                    }
+                    continue;
+                }
+            };
             self.pre_finalized_multi_blocks
                 .lock()
                 .push(multi_prefinalized_block);

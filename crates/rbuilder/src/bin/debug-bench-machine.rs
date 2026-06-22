@@ -24,7 +24,6 @@ use rbuilder::{
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use reth_primitives_traits::SignerRecoverable;
-use reth_provider::StateProvider;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use tracing::{debug, info};
 
@@ -104,10 +103,9 @@ async fn main() -> eyre::Result<()> {
         mev_blocker_price,
     );
 
-    let state_provider = Arc::<dyn StateProvider>::from(
-        provider_factory
-            .provider_factory_unchecked()
-            .history_by_block_number(last_block)?,
+    let source = rbuilder::provider::StateProviderSource::new(
+        Arc::new(provider_factory.clone()),
+        parent_num_hash.hash,
     );
 
     let mut build_times_ms = Vec::new();
@@ -122,11 +120,12 @@ async fn main() -> eyre::Result<()> {
         .into_iter()
         .collect();
         let txs = txs.clone();
-        let state_provider = state_provider.clone();
+        let source = source.clone();
         let (build_time, finalize_time) =
             tokio::task::spawn_blocking(move || -> eyre::Result<_> {
                 let mut partial_block = PartialBlock::new(true);
-                let cached = CachedDB::new(state_provider, ctx.shared_cached_reads.clone());
+                let cached =
+                    CachedDB::new(source.state_provider()?, ctx.shared_cached_reads.clone());
                 let mut state = BlockState::new(cached);
                 let mut local_ctx = ThreadBlockBuildingContext::default();
 

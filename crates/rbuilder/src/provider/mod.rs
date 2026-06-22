@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use crate::{
     building::ThreadBlockBuildingContext, live_builder::simulation::SimulatedOrderCommand,
@@ -11,6 +11,32 @@ use eth_sparse_mpt::utils::{HashMap, HashSet};
 use reth_errors::ProviderResult;
 use reth_provider::StateProviderBox;
 use revm::database::BundleState;
+
+/// Opens a [`StateProviderBox`] for a fixed parent block from a shared [`StateProviderFactory`].
+///
+/// This is the unit shared across building threads instead of a single already-opened provider:
+/// the factory handle and the block id are `Send + Sync`, so the source is too, and each consumer
+/// opens its own `Send`-only provider on demand. Pairing the factory with the parent block also
+/// removes the class of bugs where a provider is opened for the wrong block.
+#[derive(Clone)]
+pub struct StateProviderSource {
+    factory: Arc<dyn StateProviderFactory>,
+    parent_hash: BlockHash,
+}
+
+impl StateProviderSource {
+    pub fn new(factory: Arc<dyn StateProviderFactory>, parent_hash: BlockHash) -> Self {
+        Self {
+            factory,
+            parent_hash,
+        }
+    }
+
+    /// Opens a fresh state provider for the configured parent block.
+    pub fn state_provider(&self) -> ProviderResult<StateProviderBox> {
+        self.factory.history_by_block_hash(self.parent_hash)
+    }
+}
 
 pub mod ipc_state_provider;
 pub mod reth_prov;

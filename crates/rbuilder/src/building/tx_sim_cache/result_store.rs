@@ -143,6 +143,7 @@ mod tests {
                 balance: u256(balance),
                 nonce: 0,
                 code_hash: Default::default(),
+                account_id: None,
                 code: None,
             }),
         }

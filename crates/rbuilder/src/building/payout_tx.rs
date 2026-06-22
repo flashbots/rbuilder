@@ -11,7 +11,10 @@ use reth_chainspec::ChainSpec;
 use reth_errors::ProviderError;
 use reth_evm::Evm;
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
-use revm::context::result::{EVMError, ExecutionResult};
+use revm::{
+    context::result::{EVMError, ExecutionResult},
+    database::bal::EvmDatabaseError,
+};
 
 pub fn create_payout_tx(
     chain_spec: &ChainSpec,
@@ -43,7 +46,9 @@ pub enum PayoutTxErr {
     #[error("Signature error: {0}")]
     SignError(#[from] secp256k1::Error),
     #[error("EVM error: {0}")]
-    EvmError(#[from] EVMError<ProviderError>),
+    EvmError(#[from] EVMError<EvmDatabaseError<ProviderError>>),
+    #[error("EVM database error: {0}")]
+    EvmDatabase(#[from] EvmDatabaseError<ProviderError>),
 }
 
 impl PartialEq for PayoutTxErr {
@@ -52,6 +57,7 @@ impl PartialEq for PayoutTxErr {
             (PayoutTxErr::Reth(_), PayoutTxErr::Reth(_)) => true,
             (PayoutTxErr::SignError(a), PayoutTxErr::SignError(b)) => a == b,
             (PayoutTxErr::EvmError(_), PayoutTxErr::EvmError(_)) => true,
+            (PayoutTxErr::EvmDatabase(_), PayoutTxErr::EvmDatabase(_)) => true,
             _ => false,
         }
     }
@@ -220,7 +226,7 @@ mod tests {
     use reth_chainspec::{EthereumHardfork, MAINNET};
     use reth_db::{tables, transaction::DbTxMut};
     use reth_primitives::Account;
-    use reth_provider::{test_utils::create_test_provider_factory_with_chain_spec, StateProvider};
+    use reth_provider::test_utils::create_test_provider_factory_with_chain_spec;
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
@@ -270,8 +276,10 @@ mod tests {
             false,
             U256::ZERO,
         );
-        let state_provider: Arc<dyn StateProvider> = Arc::from(provider_factory.latest().unwrap());
-        let cached = CachedDB::new(state_provider, Arc::new(SharedCachedReads::default()));
+        let cached = CachedDB::new(
+            provider_factory.latest().unwrap(),
+            Arc::new(SharedCachedReads::default()),
+        );
         let mut state = BlockState::new(cached);
 
         let estimate_result =

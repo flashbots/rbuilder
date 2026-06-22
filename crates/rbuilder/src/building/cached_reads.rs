@@ -5,7 +5,7 @@ use alloy_primitives::{Address, B256, U256};
 use dashmap::DashMap;
 use reth::revm::database::StateProviderDatabase;
 use reth_errors::ProviderError;
-use reth_provider::StateProvider;
+use reth_provider::{StateProvider, StateProviderBox};
 use revm::{bytecode::Bytecode, state::AccountInfo, Database as RevmDatabase};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -43,9 +43,9 @@ impl Drop for SharedCachedReads {
 }
 
 /// Database that wraps a reth state provider with a shared read cache.
-#[derive(Clone)]
+/// Intentionally not `Clone` since StateProvider is not cloneable.
 pub struct CachedDB {
-    state_provider: Arc<dyn StateProvider>,
+    state_provider: StateProviderBox,
     shared_cache: Arc<SharedCachedReads>,
 }
 
@@ -56,10 +56,7 @@ impl std::fmt::Debug for CachedDB {
 }
 
 impl CachedDB {
-    pub fn new(
-        state_provider: Arc<dyn StateProvider>,
-        shared_cache: Arc<SharedCachedReads>,
-    ) -> Self {
+    pub fn new(state_provider: StateProviderBox, shared_cache: Arc<SharedCachedReads>) -> Self {
         Self {
             state_provider,
             shared_cache,

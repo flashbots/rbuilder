@@ -103,7 +103,7 @@ fn verify_proof(key: &[u8], proof: Vec<(Nibbles, Vec<u8>)>) -> B256 {
     let nibble_key = Nibbles::unpack(key);
     let proof_store = ProofStore::default();
     proof_store
-        .add_proof(nibble_key.clone(), proof)
+        .add_proof(nibble_key, proof)
         .expect("failed to add proof to proof store");
     let mut trie = Trie::default();
     let found = trie
@@ -417,6 +417,21 @@ fn compare_insert_key_reinsert(
     // key, value, new value (or delete)
     input: &[(Vec<u8>, Vec<u8>, Option<Vec<u8>>)],
 ) {
+    // Random input may repeat the same key; collapse to the last (value, new_value) per key so
+    // the helper models last-write-wins. Otherwise a key appearing as insert-then-delete would
+    // double-delete (an error) and make the reference trie inconsistent with the updated trie.
+    let deduped: Vec<(Vec<u8>, Vec<u8>, Option<Vec<u8>>)> = {
+        let mut by_key: HashMap<Vec<u8>, (Vec<u8>, Option<Vec<u8>>)> = HashMap::default();
+        for (key, value, new_value) in input {
+            by_key.insert(key.clone(), (value.clone(), new_value.clone()));
+        }
+        by_key
+            .into_iter()
+            .map(|(key, (value, new_value))| (key, value, new_value))
+            .collect()
+    };
+    let input = deduped.as_slice();
+
     let proof_store = ProofStore::default();
 
     let mut trie = Trie::new_empty();

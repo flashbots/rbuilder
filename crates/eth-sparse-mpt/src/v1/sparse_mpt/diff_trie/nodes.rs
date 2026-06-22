@@ -174,7 +174,7 @@ impl DiffLeafNode {
             let fixed_key = self
                 .fixed
                 .as_ref()
-                .map(|k| k.key.clone())
+                .map(|k| k.key)
                 .expect("leaf incorrect form");
             self.changed_key = Some(fixed_key);
         }
@@ -331,7 +331,7 @@ impl DiffExtensionNode {
             let fixed_key = self
                 .fixed
                 .as_ref()
-                .map(|k| k.key.clone())
+                .map(|k| k.key)
                 .expect("ext incorrect form");
             self.changed_key = Some(fixed_key);
         }

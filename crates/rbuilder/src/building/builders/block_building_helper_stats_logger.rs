@@ -160,8 +160,8 @@ impl<'a> BlockBuildingHelperStatsLogger<'a> {
 
 impl BlockBuildingHelper for BlockBuildingHelperStatsLogger<'_> {
     /// logging is not cloned
-    fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
-        self.block_building_helper.box_clone()
+    fn try_clone(&self) -> Result<Box<dyn BlockBuildingHelper>, BlockBuildingHelperError> {
+        self.block_building_helper.try_clone()
     }
 
     fn commit_order(

@@ -17,7 +17,6 @@ use crossbeam::queue::SegQueue;
 use eyre::Result;
 use itertools::Itertools;
 use results_aggregator::BestResults;
-use reth_provider::StateProvider;
 use serde::Deserialize;
 use simulation_cache::SharedSimulationCache;
 use std::{
@@ -36,7 +35,7 @@ use crate::{
         BuiltBlockIdSource, LiveBuilderInput,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
-    provider::StateProviderFactory,
+    provider::{StateProviderFactory, StateProviderSource},
     utils::elapsed_ms,
 };
 
@@ -123,15 +122,15 @@ where
         let results_aggregator =
             ResultsAggregator::new(group_result_receiver, Arc::clone(&best_results));
 
-        let block_state = input
-            .provider
-            .history_by_block_hash(input.ctx.attributes.parent)?
-            .into();
+        let source = StateProviderSource::new(
+            Arc::new(input.provider.clone()),
+            input.ctx.attributes.parent,
+        );
 
         let block_building_result_assembler = BlockBuildingResultAssembler::new(
             config,
             Arc::clone(&best_results),
-            block_state,
+            source,
             input.ctx.clone(),
             input.cancel.clone(),
             input.builder_name.clone(),
@@ -329,10 +328,10 @@ where
 
     let setup_duration = setup_start.elapsed();
 
-    let block_state: Arc<dyn StateProvider> = input
-        .provider
-        .history_by_block_hash(input.ctx.attributes.parent)?
-        .into();
+    let source = StateProviderSource::new(
+        Arc::new(input.provider.clone()),
+        input.ctx.attributes.parent,
+    );
 
     // Group processing
     let processing_start = Instant::now();
@@ -340,7 +339,7 @@ where
     let results = conflict_resolving_pool.process_groups_backtest(
         groups,
         &input.ctx,
-        block_state.clone(),
+        source.clone(),
         Arc::clone(&simulation_cache),
     );
     let processing_duration = processing_start.elapsed();
@@ -350,7 +349,7 @@ where
     let mut block_building_result_assembler = BlockBuildingResultAssembler::new(
         &config,
         Arc::clone(&best_results),
-        block_state.clone(),
+        source.clone(),
         input.ctx.clone(),
         CancellationToken::new(),
         String::from("backtest_builder"),

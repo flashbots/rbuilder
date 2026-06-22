@@ -4,7 +4,7 @@ use derivative::Derivative;
 use eyre::Result;
 use itertools::Itertools;
 use rand::{seq::SliceRandom, SeedableRng};
-use reth::providers::StateProvider;
+use reth_errors::ProviderResult;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
@@ -18,6 +18,7 @@ use crate::building::{
     cached_reads::CachedDB, BlockBuildingContext, BlockState, ExecutionError, ExecutionResult,
     PartialBlock, ThreadBlockBuildingContext,
 };
+use crate::provider::StateProviderSource;
 use rbuilder_primitives::{OrderId, SimulatedOrder};
 
 /// Context for resolving conflicts in merging tasks.
@@ -26,7 +27,7 @@ use rbuilder_primitives::{OrderId, SimulatedOrder};
 #[derivative(Debug)]
 pub struct ResolverContext {
     #[derivative(Debug = "ignore")]
-    pub state: Arc<dyn StateProvider>,
+    pub source: StateProviderSource,
     pub ctx: BlockBuildingContext,
     pub cancellation_token: CancellationToken,
     pub simulation_cache: Arc<SharedSimulationCache>,
@@ -43,13 +44,13 @@ impl ResolverContext {
     /// * `cache` - Optional cached reads for optimization.
     /// * `simulation_cache` - Shared cache for simulation results.
     pub fn new(
-        state: Arc<dyn StateProvider>,
+        source: StateProviderSource,
         ctx: BlockBuildingContext,
         cancellation_token: CancellationToken,
         simulation_cache: Arc<SharedSimulationCache>,
     ) -> Self {
         ResolverContext {
-            state,
+            source,
             ctx,
             cancellation_token,
             simulation_cache,
@@ -81,7 +82,7 @@ impl ResolverContext {
 
         for sequence_of_orders in sequence_to_try {
             let (resolution_result, _state) =
-                self.process_sequence_of_orders(sequence_of_orders, &task, self.state.clone())?;
+                self.process_sequence_of_orders(sequence_of_orders, &task, self.source.clone())?;
             self.update_best_result(resolution_result, &mut best_resolution_result);
         }
 
@@ -126,7 +127,7 @@ impl ResolverContext {
         &mut self,
         sequence_of_orders: Vec<usize>,
         task: &ConflictTask,
-        state_provider: Arc<dyn StateProvider>,
+        source: StateProviderSource,
     ) -> Result<(ResolutionResult, BlockState<CachedDB>)> {
         // @todo actually reuse it for the duration of the block
         let mut local_ctx = ThreadBlockBuildingContext::default();
@@ -141,7 +142,7 @@ impl ResolverContext {
 
         // Initialize state and partial block
         let mut partial_block = PartialBlock::new(true);
-        let mut state = self.initialize_block_state(state_provider);
+        let mut state = self.initialize_block_state(source)?;
         partial_block.pre_block_call(&self.ctx, &mut state)?;
 
         // Initialize sequenced_order_result
@@ -286,10 +287,13 @@ impl ResolverContext {
     /// Initializes the block state, using a cached state if available.
     fn initialize_block_state(
         &mut self,
-        state_provider: Arc<dyn StateProvider>,
-    ) -> BlockState<CachedDB> {
-        let cached = CachedDB::new(state_provider, self.ctx.shared_cached_reads.clone());
-        BlockState::new(cached)
+        source: StateProviderSource,
+    ) -> ProviderResult<BlockState<CachedDB>> {
+        let cached = CachedDB::new(
+            source.state_provider()?,
+            self.ctx.shared_cached_reads.clone(),
+        );
+        Ok(BlockState::new(cached))
     }
 
     /// Stores the simulation state in the cache.

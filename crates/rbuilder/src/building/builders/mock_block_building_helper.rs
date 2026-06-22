@@ -59,8 +59,8 @@ impl MockBlockBuildingHelper {
 }
 
 impl BlockBuildingHelper for MockBlockBuildingHelper {
-    fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
-        Box::new(self.clone())
+    fn try_clone(&self) -> Result<Box<dyn BlockBuildingHelper>, BlockBuildingHelperError> {
+        Ok(Box::new(self.clone()))
     }
 
     fn commit_order(

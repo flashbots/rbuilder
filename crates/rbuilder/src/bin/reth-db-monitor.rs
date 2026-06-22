@@ -155,6 +155,7 @@ fn create_provider_from_reth_path(
         Some(&reth_path),
         None,
         None,
+        None,
         chain_spec,
         false, // read-only
         None,  // no root hash

@@ -1,0 +1,20 @@
+# Custom builder-playground recipe used by the integration CI.
+#
+# Same as the built-in `l1` recipe but pins the reth execution client to the version rbuilder is
+# built against (1.11.3, rev d6324d6). builder-playground's `l1` recipe hardcodes reth v1.9.3, whose
+# on-disk DB (no RocksDB / older format) cannot be opened by rbuilder's reth 1.11 `ProviderFactory`.
+#
+# Setting `release` makes the reth `el` service run as a native host binary (UseHostExecution), which
+# is required so rbuilder can bind the reth DB directly — this replaces the old `--use-native-reth`
+# flag. The arch/URL is resolved exactly like the built-in reth release
+# (reth-v1.11.3-x86_64-unknown-linux-gnu.tar.gz).
+base: l1
+
+recipe:
+  reth:
+    services:
+      el:
+        release:
+          name: reth
+          org: paradigmxyz
+          version: v1.11.3

@@ -1,8 +1,6 @@
 use alloy_primitives::{utils::format_ether, Address, TxHash, I256, U256};
-use reth_provider::StateProvider;
 use std::{
     cmp::max,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
@@ -20,6 +18,7 @@ use crate::{
         ThreadBlockBuildingContext,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
+    provider::StateProviderSource,
     telemetry::{self, add_block_fill_time, add_order_simulation_time},
     utils::{check_block_hash_reader_health, elapsed_ms, HistoricalBlockError},
 };
@@ -37,8 +36,9 @@ use super::Block;
 /// 2 - Call lots of commit_order.
 /// 3 - Call set_trace_fill_time when you are done calling commit_order (we still have to review this step).
 /// 4 - Call finalize_block.
-pub trait BlockBuildingHelper: Send + Sync {
-    fn box_clone(&self) -> Box<dyn BlockBuildingHelper>;
+pub trait BlockBuildingHelper: Send {
+    /// Clones the helper, reopening its state provider. Fallible because reopening can fail.
+    fn try_clone(&self) -> Result<Box<dyn BlockBuildingHelper>, BlockBuildingHelperError>;
 
     /// Tries to add an order to the end of the block.
     /// Block state changes only on Ok(Ok)
@@ -112,16 +112,6 @@ pub struct BiddableUnfinishedBlock {
     pub chosen_as_best_at: OffsetDateTime,
 }
 
-impl Clone for BiddableUnfinishedBlock {
-    fn clone(&self) -> Self {
-        Self {
-            block: self.block.box_clone(),
-            true_block_value: self.true_block_value,
-            chosen_as_best_at: self.chosen_as_best_at,
-        }
-    }
-}
-
 impl BiddableUnfinishedBlock {
     pub fn new(block: Box<dyn BlockBuildingHelper>) -> Result<Self, BlockBuildingHelperError> {
         let true_block_value = block.true_block_value()?;
@@ -129,6 +119,16 @@ impl BiddableUnfinishedBlock {
             block,
             true_block_value,
             chosen_as_best_at: OffsetDateTime::now_utc(),
+        })
+    }
+
+    /// Clones the block by reopening the underlying state provider. Fallible because reopening the
+    /// provider can fail.
+    pub fn try_clone(&self) -> Result<Self, BlockBuildingHelperError> {
+        Ok(Self {
+            block: self.block.try_clone()?,
+            true_block_value: self.true_block_value,
+            chosen_as_best_at: self.chosen_as_best_at,
         })
     }
     pub fn id(&self) -> BuiltBlockId {
@@ -145,12 +145,13 @@ impl BiddableUnfinishedBlock {
 }
 
 /// Implementation of BlockBuildingHelper based on a generic Provider
-#[derive(Clone)]
 pub struct BlockBuildingHelperFromProvider<
     PartialBlockExecutionTracerType: PartialBlockExecutionTracer + Clone + Send + Sync + 'static,
 > {
     /// Balance of fee recipient before we stared building.
     _fee_recipient_balance_start: U256,
+    /// Reopens a fresh state provider when the helper is cloned for bidding/finalization.
+    source: StateProviderSource,
     /// Accumulated changes for the block (due to commit_order calls).
     block_state: BlockState<CachedDB>,
     partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
@@ -215,7 +216,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
     pub fn new(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider_source: StateProviderSource,
         building_ctx: BlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
@@ -226,7 +227,7 @@ impl BlockBuildingHelperFromProvider<NullPartialBlockExecutionTracer> {
         BlockBuildingHelperFromProvider::new_with_execution_tracer(
             built_block_id,
             next_journal_sequence_number,
-            state_provider,
+            state_provider_source,
             building_ctx,
             builder_name,
             discard_txs,
@@ -251,7 +252,7 @@ impl<
     pub fn new_with_execution_tracer(
         built_block_id: BuiltBlockId,
         next_journal_sequence_number: JournalSequenceNumber,
-        state_provider: Arc<dyn StateProvider>,
+        state_provider_source: StateProviderSource,
         building_ctx: BlockBuildingContext,
         builder_name: String,
         discard_txs: bool,
@@ -260,6 +261,7 @@ impl<
         partial_block_execution_tracer: PartialBlockExecutionTracerType,
         max_order_execution_duration_warning: Option<Duration>,
     ) -> Result<Self, BlockBuildingHelperError> {
+        let state_provider = state_provider_source.state_provider()?;
         let last_committed_block = building_ctx.block() - 1;
         check_block_hash_reader_health(last_committed_block, &state_provider)?;
 
@@ -288,6 +290,7 @@ impl<
         built_block_trace.available_orders_statistics = available_orders_statistics;
         Ok(Self {
             _fee_recipient_balance_start: fee_recipient_balance_start,
+            source: state_provider_source,
             block_state,
             partial_block,
             payout_tx_gas,
@@ -621,8 +624,27 @@ impl<
         &self.building_ctx
     }
 
-    fn box_clone(&self) -> Box<dyn BlockBuildingHelper> {
-        Box::new(self.clone())
+    fn try_clone(&self) -> Result<Box<dyn BlockBuildingHelper>, BlockBuildingHelperError> {
+        let state_provider = self.source.state_provider()?;
+        let cached = CachedDB::new(
+            state_provider,
+            self.building_ctx.shared_cached_reads.clone(),
+        );
+        let block_state =
+            BlockState::new(cached).with_bundle_state(self.block_state.clone_bundle());
+        Ok(Box::new(Self {
+            _fee_recipient_balance_start: self._fee_recipient_balance_start,
+            source: self.source.clone(),
+            block_state,
+            partial_block: self.partial_block.clone(),
+            payout_tx_gas: self.payout_tx_gas,
+            builder_name: self.builder_name.clone(),
+            building_ctx: self.building_ctx.clone(),
+            built_block_trace: self.built_block_trace.clone(),
+            cancel_on_fatal_error: self.cancel_on_fatal_error.clone(),
+            finalize_adjustment_state: self.finalize_adjustment_state.clone(),
+            max_order_execution_duration_warning: self.max_order_execution_duration_warning,
+        }))
     }
 
     fn builder_name(&self) -> &str {

@@ -10,9 +10,7 @@ use rbuilder_primitives::{
     serialize::{RawTx, TxEncoding},
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth_chainspec::ChainSpec;
-use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
-use revm::context::CfgEnv;
+use reth::tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub mod bls;
@@ -31,6 +29,31 @@ pub use provider_factory_reopen::{
     check_block_hash_reader_health, is_provider_factory_health_error, HistoricalBlockError,
     ProviderFactoryReopener, RootHasherImpl,
 };
+
+/// Process-wide reth task [`Runtime`] shared by every rbuilder component that needs one
+/// (`ProviderFactory`, `ParallelStateRoot`). Built once on first use and cached: the reth
+/// `Runtime` owns several rayon thread pools, so rebuilding it per call would spawn and tear
+/// down those pools every time. The returned handle is `Arc`-backed, so cloning is cheap.
+///
+/// Attaches to the ambient tokio runtime when first called from within one, otherwise builds a
+/// standalone runtime.
+pub(crate) fn reth_task_runtime() -> Runtime {
+    static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            let config = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => RuntimeConfig::with_existing_handle(handle),
+                Err(_) => RuntimeConfig::default(),
+            };
+            // Invariant: building the process-wide task runtime is a startup operation. If it
+            // fails the builder cannot compute state roots or open the provider factory, so there
+            // is no meaningful way to continue.
+            RuntimeBuilder::new(config)
+                .build()
+                .expect("failed to build the process-wide reth task runtime")
+        })
+        .clone()
+}
 
 pub mod reconnect;
 
@@ -138,13 +161,6 @@ pub fn timestamp_now_ms() -> u64 {
 
 pub fn gen_uid() -> u64 {
     rand::random()
-}
-
-pub fn default_cfg_env(chain_spec: &ChainSpec, block_timestamp: u64, block_number: u64) -> CfgEnv {
-    let spec = revm_spec_by_timestamp_and_block_number(chain_spec, block_timestamp, block_number);
-    CfgEnv::new()
-        .with_chain_id(chain_spec.chain().id())
-        .with_spec(spec)
 }
 
 pub fn unix_timestamp_now() -> u64 {

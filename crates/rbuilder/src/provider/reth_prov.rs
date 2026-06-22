@@ -4,8 +4,9 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{
-    BlockReader, DatabaseProviderFactory, HeaderProvider, PruneCheckpointReader,
-    StageCheckpointReader, StateProviderBox, TrieReader,
+    BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory, HeaderProvider,
+    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StorageChangeSetReader,
+    StorageSettingsCache,
 };
 use tracing::error;
 
@@ -30,8 +31,15 @@ impl<P> StateProviderFactoryFromRethProvider<P> {
 impl<P> StateProviderFactory for StateProviderFactoryFromRethProvider<P>
 where
     P: DatabaseProviderFactory<
-            Provider: BlockReader + TrieReader + StageCheckpointReader + PruneCheckpointReader,
+            Provider: BlockReader
+                          + StageCheckpointReader
+                          + PruneCheckpointReader
+                          + ChangeSetReader
+                          + StorageChangeSetReader
+                          + DBProvider
+                          + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
+        + reth_provider::HashedPostStateProvider
         + HeaderProvider<Header = Header>
         + Clone
         + 'static,
@@ -69,7 +77,6 @@ where
     }
 
     fn root_hasher(&self, parent_num_hash: BlockNumHash) -> ProviderResult<Box<dyn RootHasher>> {
-        let hasher = self.history_by_block_hash(parent_num_hash.hash)?;
         let parent_state_root = self
             .provider
             .header_by_hash_or_number(parent_num_hash.hash.into())?
@@ -82,7 +89,7 @@ where
             parent_state_root,
             self.root_hash_context.clone(),
             self.provider.clone(),
-            hasher,
+            self.provider.clone(),
         )))
     }
 }

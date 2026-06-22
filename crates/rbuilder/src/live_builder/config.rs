@@ -762,6 +762,7 @@ pub fn create_provider_factory(
     reth_datadir: Option<&Path>,
     reth_db_path: Option<&Path>,
     reth_static_files_path: Option<&Path>,
+    reth_rocksdb_path: Option<&Path>,
     chain_spec: Arc<ChainSpec>,
     root_hash_config: Option<RootHashContext>,
 ) -> eyre::Result<ProviderFactoryReopener<NodeTypesWithDBAdapter<EthereumNode, Arc<DatabaseEnv>>>> {
@@ -781,8 +782,21 @@ pub fn create_provider_factory(
         }
     };
 
-    let provider_factory_reopener =
-        ProviderFactoryReopener::new(db, chain_spec, reth_static_files_path, root_hash_config)?;
+    let reth_rocksdb_path = match (reth_rocksdb_path, reth_datadir) {
+        (Some(reth_rocksdb_path), _) => PathBuf::from(reth_rocksdb_path),
+        (None, Some(reth_datadir)) => reth_datadir.join("rocksdb"),
+        (None, None) => {
+            eyre::bail!("Either reth_rocksdb_path or reth_datadir must be provided")
+        }
+    };
+
+    let provider_factory_reopener = ProviderFactoryReopener::new(
+        db,
+        chain_spec,
+        reth_static_files_path,
+        reth_rocksdb_path,
+        root_hash_config,
+    )?;
 
     if provider_factory_reopener
         .provider_factory_unchecked()
