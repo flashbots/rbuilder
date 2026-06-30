@@ -28,14 +28,6 @@ pub fn rlp_pointer(rlp_encode: Bytes) -> Bytes {
     }
 }
 
-pub fn convert_nibbles_to_reth_nybbles(key: Nibbles) -> Nibbles {
-    key
-}
-
-pub fn convert_reth_nybbles_to_nibbles(key: Nibbles) -> Nibbles {
-    key
-}
-
 pub fn concat_path(p1: &Nibbles, p2: &[u8]) -> Nibbles {
     let mut result = *p1;
     result.extend_from_slice_unchecked(p2);
@@ -60,29 +52,25 @@ pub fn extract_prefix_and_suffix(p1: &Nibbles, p2: &Nibbles) -> (Nibbles, Nibble
 
 #[inline]
 pub fn encode_leaf(key: &Nibbles, value: &[u8], out: &mut dyn BufMut) {
-    let key = convert_nibbles_to_reth_nybbles(key.clone());
-    LeafNodeRef { key: &key, value }.encode(out)
+    LeafNodeRef { key, value }.encode(out)
 }
 
 pub fn encode_len_leaf(key: &Nibbles, value: &[u8]) -> usize {
-    let key = convert_nibbles_to_reth_nybbles(key.clone());
-    LeafNodeRef { key: &key, value }.length()
+    LeafNodeRef { key, value }.length()
 }
 
 #[inline]
 pub fn encode_extension(key: &Nibbles, child_rlp_pointer: &[u8], out: &mut dyn BufMut) {
-    let key = convert_nibbles_to_reth_nybbles(key.clone());
     ExtensionNodeRef {
-        key: &key,
+        key,
         child: child_rlp_pointer,
     }
     .encode(out)
 }
 
 pub fn encode_len_extension(key: &Nibbles, child_rlp_pointer: &[u8]) -> usize {
-    let key = convert_nibbles_to_reth_nybbles(key.clone());
     ExtensionNodeRef {
-        key: &key,
+        key,
         child: child_rlp_pointer,
     }
     .length()

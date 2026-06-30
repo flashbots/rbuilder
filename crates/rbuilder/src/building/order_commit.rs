@@ -652,7 +652,7 @@ impl<
         };
 
         if let Some(tracer) = &mut self.tracer {
-            tracer.add_gas_used(res.result.gas_used());
+            tracer.add_gas_used(res.result.tx_gas_used());
             if let (true, Some(t)) = (is_recording_used_state, used_state_trace) {
                 tracer.add_used_state_trace(t)
             }
@@ -666,7 +666,7 @@ impl<
 
         // add gas used by the transaction to cumulative gas used, before creating the receipt
         let space_used = BlockSpace::new(
-            res.result.gas_used(),
+            res.result.tx_gas_used(),
             tx_with_blobs.internal_tx_unsecure().length(),
             blob_gas_used,
         );

@@ -2,12 +2,9 @@ use ahash::HashMap;
 use alloy_consensus::ReceiptWithBloom;
 use alloy_eips::Encodable2718;
 use alloy_primitives::{Bloom, Bytes, Log, B256};
-use alloy_trie::{
-    proof::ProofRetainer, root::adjust_index_for_rlp, HashBuilder, Nibbles as AlloyNibbles,
-};
+use alloy_trie::{proof::ProofRetainer, root::adjust_index_for_rlp, HashBuilder, Nibbles};
 use eth_sparse_mpt::v2::trie::{proof_store::ProofStore, Trie};
 use itertools::Itertools;
-use nybbles::Nibbles as SparseNibbles;
 use reth_ethereum_primitives::Receipt;
 
 use crate::building::TransactionExecutionInfo;
@@ -143,7 +140,7 @@ fn calculate_receipts_root_and_placeholder_proof_with_cache(
     };
 
     let target_idx = receipts.len().checked_sub(1).unwrap();
-    let nibbles = SparseNibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
+    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
     let proof_with_value = trie
         .get_proof_nibbles_key(&nibbles, &cache.empty_proof_store)
         .unwrap();
@@ -225,7 +222,7 @@ fn calculate_tx_root_and_placeholder_proof_with_cache(
     };
 
     let target_idx = executed_tx_infos.len().checked_sub(1).unwrap();
-    let nibbles = SparseNibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
+    let nibbles = Nibbles::unpack(alloy_rlp::encode_fixed_size(&target_idx));
     let proof_with_value = trie
         .get_proof_nibbles_key(&nibbles, &cache.empty_proof_store)
         .unwrap();
@@ -261,13 +258,13 @@ pub fn ordered_trie_root_and_proof(items: &[Bytes], proof_index: usize) -> (B256
     let items_len = items.len();
 
     let proof_target_encoded = alloy_rlp::encode_fixed_size(&proof_index);
-    let proof_retainer = ProofRetainer::from_iter([AlloyNibbles::unpack(&proof_target_encoded)]);
+    let proof_retainer = ProofRetainer::from_iter([Nibbles::unpack(&proof_target_encoded)]);
 
     let mut hb = HashBuilder::default().with_proof_retainer(proof_retainer);
     for i in 0..items_len {
         let index = adjust_index_for_rlp(i, items_len);
         let index_encoded = alloy_rlp::encode_fixed_size(&index);
-        hb.add_leaf(AlloyNibbles::unpack(&index_encoded), &items[index]);
+        hb.add_leaf(Nibbles::unpack(&index_encoded), &items[index]);
     }
 
     let root = hb.root();

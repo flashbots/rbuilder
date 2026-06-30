@@ -10,7 +10,7 @@ use rbuilder_primitives::{
     serialize::{RawTx, TxEncoding},
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::tasks::{Runtime, RuntimeBuilder, RuntimeConfig};
+use reth::tasks::{Runtime, RuntimeBuilder, RuntimeConfig, TokioConfig};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub mod bls;
@@ -41,7 +41,12 @@ pub(crate) fn reth_task_runtime() -> Runtime {
     static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
     RUNTIME
         .get_or_init(|| {
-            let config = RuntimeConfig::default();
+            let config = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    RuntimeConfig::default().with_tokio(TokioConfig::ExistingHandle(handle))
+                }
+                Err(_) => RuntimeConfig::default(),
+            };
             // Invariant: building the process-wide task runtime is a startup operation. If it
             // fails the builder cannot compute state roots or open the provider factory, so there
             // is no meaningful way to continue.

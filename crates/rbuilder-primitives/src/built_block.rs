@@ -41,9 +41,6 @@ impl SignedBuiltBlock {
             ExecutionPayload::V1(_v1) => {
                 eyre::bail!("v1 payloads are not supported");
             }
-            ExecutionPayload::V4(_v4) => {
-                eyre::bail!("v4 payloads are not supported");
-            }
             ExecutionPayload::V2(v2) => {
                 Ok(AlloySubmitBlockRequest::Capella(SignedBidSubmissionV2 {
                     message: self.message,
@@ -86,6 +83,9 @@ impl SignedBuiltBlock {
                     blobs_bundle,
                     signature: self.signature,
                 }))
+            }
+            ExecutionPayload::V4(_v4) => {
+                eyre::bail!("v4 payloads are not supported");
             }
         }
     }

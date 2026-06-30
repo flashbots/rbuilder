@@ -1,6 +1,6 @@
 use alloy_consensus::{Block, Header};
 use alloy_eips::{
-    eip4844::{Blob as AlloyBlob, BlobTransactionSidecar},
+    eip4844::{c_kzg::Blob, Blob as AlloyBlob, BlobTransactionSidecar},
     eip7594::BlobTransactionSidecarVariant,
 };
 use alloy_primitives::U256;
@@ -56,13 +56,15 @@ fn bench_mevboost_sign(c: &mut Criterion) {
         serde_json::from_str(&json_content).expect("Failed to deserialize JSON");
 
     // Extract blob data from JSON and convert it to Blob.
-    let blobs: Vec<AlloyBlob> = vec![json_value
-        .get("data")
-        .unwrap()
-        .as_str()
-        .expect("Data is not a valid string")
-        .parse()
-        .unwrap()];
+    let blob = Blob::from_hex(
+        json_value
+            .get("data")
+            .unwrap()
+            .as_str()
+            .expect("Data is not valid string"),
+    )
+    .unwrap();
+    let blobs: Vec<AlloyBlob> = vec![AlloyBlob::from_slice(blob.as_ref())];
 
     // Generate a BlobTransactionSidecar from the blobs
     let blob = BlobTransactionSidecar::try_from_blobs(blobs).unwrap();

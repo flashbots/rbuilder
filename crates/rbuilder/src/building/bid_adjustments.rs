@@ -25,7 +25,7 @@ pub fn generate_bid_adjustment_state_proofs<DB>(
 
     let builder_signer = &ctx.builder_signer;
     let builder_address = builder_signer.address;
-    let fee_recipient_address = ctx.attributes.suggested_fee_recipient;
+    let fee_recipient_address = ctx.attributes.suggested_fee_recipient();
 
     let proof_targets = HashSet::from_iter(
         [builder_address, fee_recipient_address]
