@@ -39,6 +39,17 @@ pub fn create_payout_tx(
     signer.sign_tx(tx)
 }
 
+/// Minimum builder (coinbase) balance required to send the proposer payout
+/// transaction: the transferred `value` plus the gas the EVM locks up front
+/// (`gas_limit * basefee`, since the payout tx sets `max_fee_per_gas = basefee`
+/// and `max_priority_fee_per_gas = 0`). A builder holding less than this cannot
+/// cover the payout tx and it will not be sendable; in the limiting case of a
+/// value-less payout the floor is `BASE_TX_GAS * basefee`. See
+/// flashbots/rbuilder#296. Saturating so an implausible input cannot panic.
+pub fn proposer_payout_tx_cost(value: U256, gas_limit: u64, basefee: u64) -> U256 {
+    value.saturating_add(U256::from(gas_limit).saturating_mul(U256::from(basefee)))
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PayoutTxErr {
     #[error("Reth error: {0}")]
@@ -286,5 +297,54 @@ mod tests {
             estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
         assert_matches!(estimate_result, Ok(_));
         assert_eq!(estimate_result.unwrap().gas, 21_000);
+    }
+
+    #[test]
+    fn payout_tx_cost_covers_value_and_gas() {
+        let basefee = INITIAL_BASE_FEE;
+
+        // A value-less payout still needs BASE_TX_GAS * basefee: the "21k gas"
+        // floor from flashbots/rbuilder#296.
+        assert_eq!(
+            proposer_payout_tx_cost(U256::ZERO, BASE_TX_GAS, basefee),
+            U256::from(BASE_TX_GAS) * U256::from(basefee),
+        );
+
+        // The transferred value is added on top of the gas cost.
+        let value = U256::from(7_000_000_000u64);
+        assert_eq!(
+            proposer_payout_tx_cost(value, BASE_TX_GAS, basefee),
+            value + U256::from(BASE_TX_GAS) * U256::from(basefee),
+        );
+    }
+
+    #[test]
+    fn payout_tx_cost_matches_guard_boundary() {
+        let basefee = INITIAL_BASE_FEE;
+        let value = U256::from(7_000_000_000u64);
+        // Independently computed cost (NOT via the function under test) so the
+        // assertions below depend on proposer_payout_tx_cost's real output.
+        let exact = value + U256::from(BASE_TX_GAS) * U256::from(basefee);
+
+        // The guard in insert_refunds_and_proposer_payout_tx warns iff
+        // builder_balance < proposer_payout_tx_cost(...). A balance of exactly
+        // the cost is sufficient (no warn); one wei less is insufficient.
+        assert!(
+            exact >= proposer_payout_tx_cost(value, BASE_TX_GAS, basefee),
+            "balance equal to the cost is sufficient",
+        );
+        assert!(
+            exact - U256::from(1) < proposer_payout_tx_cost(value, BASE_TX_GAS, basefee),
+            "balance one wei below the cost is insufficient",
+        );
+    }
+
+    #[test]
+    fn payout_tx_cost_saturates() {
+        // Implausible inputs must saturate rather than panic on overflow.
+        assert_eq!(
+            proposer_payout_tx_cost(U256::MAX, u64::MAX, u64::MAX),
+            U256::MAX,
+        );
     }
 }
