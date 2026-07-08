@@ -285,7 +285,14 @@ impl BaseConfig {
     }
 
     pub fn chain_spec(&self) -> eyre::Result<Arc<ChainSpec>> {
-        chain_value_parser(&self.chain)
+        // Expand env vars/`~` before handing the value to reth. reth's
+        // `parse_genesis` reads path-based chains literally (no shell
+        // expansion), so a `$HOME/...` chain path would otherwise fail to open.
+        // This is a no-op for built-in chain names like "mainnet".
+        let chain = shellexpand::full(&self.chain)
+            .wrap_err("failed to expand chain path")?
+            .into_owned();
+        chain_value_parser(&chain)
     }
 
     /// Open reth db and DB should be opened once per process but it can be cloned and moved to different threads.
