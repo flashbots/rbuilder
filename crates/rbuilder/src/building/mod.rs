@@ -208,7 +208,7 @@ impl BlockBuildingContext {
                     gas_limit,
                     withdrawals: Some(attributes.withdrawals()),
                     parent_beacon_block_root: attributes.parent_beacon_block_root(),
-                    extra_data: Bytes::new(),
+                    extra_data: extra_data.clone().into(),
                     slot_number: attributes.slot_number(),
                 },
             )

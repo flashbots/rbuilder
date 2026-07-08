@@ -98,7 +98,7 @@ where
 
     let res = evm.transact(&tx)?;
     match res.result {
-        ExecutionResult::Success { .. } => Ok(Some(res.result.tx_gas_used())),
+        ExecutionResult::Success { gas, .. } => Ok(Some(gas.total_gas_spent())),
         _ => Ok(None),
     }
 }
