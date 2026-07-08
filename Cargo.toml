@@ -75,7 +75,6 @@ reth-cli-util = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-db = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
-reth-payload-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-trie = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
