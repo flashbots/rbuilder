@@ -9992,6 +9992,7 @@ dependencies = [
  "metrics_macros",
  "mev-share-sse",
  "mockall",
+ "notify",
  "parking_lot",
  "priority-queue",
  "prometheus",

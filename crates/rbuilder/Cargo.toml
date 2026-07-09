@@ -40,6 +40,7 @@ reth-evm-ethereum.workspace = true
 reth-tasks.workspace = true
 revm.workspace = true
 reth-node-ethereum.workspace = true
+notify.workspace = true
 
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true

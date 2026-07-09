@@ -139,6 +139,7 @@ thiserror = { version = "1.0.64" }
 eyre = { version = "0.6.12" }
 jsonrpsee = { version = "0.24.4" }
 parking_lot = { version = "0.12.3" }
+notify = "8.2.0"
 tokio = { version = "1.40.0", default-features = false }
 futures = "0.3"
 futures-util = "0.3"
