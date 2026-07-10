@@ -4,7 +4,7 @@ use rbuilder_primitives::mev_boost::{
     ssz_roots::{tx_ssz_leaf_root, CompactSszTransactionTree},
     BidAdjustmentStateProofs,
 };
-use reth_primitives::TransactionSigned;
+use reth_ethereum_primitives::TransactionSigned;
 use std::collections::{HashMap, HashSet};
 use tracing::*;
 
@@ -25,7 +25,7 @@ pub fn generate_bid_adjustment_state_proofs<DB>(
 
     let builder_signer = &ctx.builder_signer;
     let builder_address = builder_signer.address;
-    let fee_recipient_address = ctx.attributes.suggested_fee_recipient;
+    let fee_recipient_address = ctx.attributes.suggested_fee_recipient();
 
     let proof_targets = HashSet::from_iter(
         [builder_address, fee_recipient_address]

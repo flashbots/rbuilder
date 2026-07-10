@@ -379,8 +379,8 @@ mod tests {
 
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Address, TxHash, B256, U256};
-    use reth::primitives::{Transaction, TransactionSigned};
-    use reth_primitives::Recovered;
+    use reth_ethereum_primitives::{Transaction, TransactionSigned};
+    use reth_primitives_traits::Recovered;
 
     use rbuilder_primitives::{
         evm_inspector::{SlotKey, UsedStateTrace},

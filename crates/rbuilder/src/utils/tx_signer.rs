@@ -1,6 +1,7 @@
 use alloy_consensus::SignableTransaction;
 use alloy_primitives::{Address, Signature, B256, U256};
-use reth_primitives::{public_key_to_address, Recovered, Transaction, TransactionSigned};
+use reth_ethereum_primitives::{Transaction, TransactionSigned};
+use reth_primitives_traits::{crypto::secp256k1::public_key_to_address, Recovered};
 use secp256k1::{Message, SecretKey, SECP256K1};
 
 /// Simple struct to sign txs/messages.

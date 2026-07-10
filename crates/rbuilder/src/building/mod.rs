@@ -32,6 +32,7 @@ use alloy_evm::{block::system_calls::SystemCaller, env::EvmEnv, eth::eip6110, Da
 use alloy_primitives::{Address, BlockNumber, Bytes, B256, I256, U256};
 use alloy_rlp::Encodable as _;
 use alloy_rpc_types_beacon::events::PayloadAttributesEvent;
+use alloy_rpc_types_engine::PayloadAttributes;
 use cached_reads::SharedCachedReads;
 use derive_more::Deref;
 use eth_sparse_mpt::SparseTrieLocalCache;
@@ -42,18 +43,13 @@ use rbuilder_primitives::{
     mev_boost::BidAdjustmentDataV3, BlockSpace, Order, SimValue, SimulatedOrder,
     TransactionSignedEcRecoveredWithBlobs,
 };
-use reth::{
-    payload::PayloadId,
-    primitives::{Block, SealedBlock},
-};
+use reth::payload::PayloadId;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks};
 use reth_errors::{BlockExecutionError, BlockValidationError, ProviderError};
+use reth_ethereum_primitives::{Block, BlockBody};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_evm_ethereum::{revm_spec_by_timestamp_and_block_number, EthEvmConfig};
-use reth_node_api::{EngineApiMessageVersion, PayloadBuilderAttributes};
-use reth_payload_builder::EthPayloadBuilderAttributes;
-use reth_primitives::BlockBody;
-use reth_primitives_traits::{proofs, Block as _};
+use reth_primitives_traits::{proofs, Block as _, SealedBlock};
 use revm::{
     context_interface::result::InvalidTransaction,
     database::{states::bundle_state::BundleRetention, DatabaseCommitExt as _},
@@ -101,6 +97,44 @@ pub use conflict::*;
 
 /// Estimated overhead for the whole block header rlp length
 const BLOCK_HEADER_RLP_OVERHEAD: usize = 1024;
+
+#[derive(Debug, Clone)]
+pub struct EthPayloadBuilderAttributes {
+    pub id: PayloadId,
+    pub parent: B256,
+    pub payload_attributes: PayloadAttributes,
+}
+
+impl EthPayloadBuilderAttributes {
+    pub fn timestamp(&self) -> u64 {
+        self.payload_attributes.timestamp
+    }
+
+    pub fn suggested_fee_recipient(&self) -> Address {
+        self.payload_attributes.suggested_fee_recipient
+    }
+
+    pub fn prev_randao(&self) -> B256 {
+        self.payload_attributes.prev_randao
+    }
+
+    pub fn parent_beacon_block_root(&self) -> Option<B256> {
+        self.payload_attributes.parent_beacon_block_root
+    }
+
+    pub fn withdrawals(&self) -> Withdrawals {
+        Withdrawals::new(
+            self.payload_attributes
+                .withdrawals
+                .clone()
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn slot_number(&self) -> Option<u64> {
+        self.payload_attributes.slot_number
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BlockBuildingContext {
@@ -151,12 +185,12 @@ impl BlockBuildingContext {
         adjustment_fee_payers: ahash::HashSet<Address>,
         mempool_tx_detector: Arc<MempoolTxsDetector>,
     ) -> Option<BlockBuildingContext> {
-        let attributes = EthPayloadBuilderAttributes::try_new(
-            attributes.data.parent_block_hash,
-            attributes.data.payload_attributes.clone(),
-            EngineApiMessageVersion::default() as u8,
-        )
-        .expect("PayloadBuilderAttributes::try_new");
+        let payload_attributes = attributes.data.payload_attributes.clone();
+        let attributes = EthPayloadBuilderAttributes {
+            id: PayloadId::new([0u8; 8]),
+            parent: attributes.data.parent_block_hash,
+            payload_attributes,
+        };
         let eth_evm_config = EthEvmConfig::new(chain_spec.clone());
         let gas_limit = calculate_block_gas_limit(
             parent.gas_limit,
@@ -172,20 +206,21 @@ impl BlockBuildingContext {
                     suggested_fee_recipient: attributes.suggested_fee_recipient(),
                     prev_randao: attributes.prev_randao(),
                     gas_limit,
-                    withdrawals: Some(attributes.withdrawals.clone()),
-                    parent_beacon_block_root: attributes.parent_beacon_block_root,
+                    withdrawals: Some(attributes.withdrawals()),
+                    parent_beacon_block_root: attributes.parent_beacon_block_root(),
                     extra_data: extra_data.clone().into(),
+                    slot_number: attributes.slot_number(),
                 },
             )
             .ok()?;
         evm_env.cfg_env.tx_chain_id_check = true;
         evm_env.block_env.beneficiary = signer.address;
 
-        let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp) {
+        let excess_blob_gas = if chain_spec.is_cancun_active_at_timestamp(attributes.timestamp()) {
             if chain_spec.is_cancun_active_at_timestamp(parent.timestamp) {
                 parent.next_block_excess_blob_gas(
                     chain_spec
-                        .blob_params_at_timestamp(attributes.timestamp)
+                        .blob_params_at_timestamp(attributes.timestamp())
                         .unwrap_or(BlobParams::cancun()),
                 )
             } else {
@@ -272,11 +307,14 @@ impl BlockBuildingContext {
         let attributes = EthPayloadBuilderAttributes {
             id: PayloadId::new([0u8; 8]),
             parent: onchain_block.header.parent_hash,
-            timestamp: timestamp_as_u64(&onchain_block),
-            suggested_fee_recipient,
-            prev_randao: onchain_block.header.mix_hash,
-            withdrawals,
-            parent_beacon_block_root: onchain_block.header.parent_beacon_block_root,
+            payload_attributes: PayloadAttributes {
+                timestamp: timestamp_as_u64(&onchain_block),
+                prev_randao: onchain_block.header.mix_hash,
+                suggested_fee_recipient,
+                withdrawals: Some(withdrawals.into_inner()),
+                parent_beacon_block_root: onchain_block.header.parent_beacon_block_root,
+                slot_number: onchain_block.header.slot_number,
+            },
         };
         let spec_id = spec_id.unwrap_or_else(|| {
             // we use current block data instead of the parent block data to determine fork
@@ -334,12 +372,12 @@ impl BlockBuildingContext {
     }
 
     pub fn timestamp(&self) -> OffsetDateTime {
-        OffsetDateTime::from_unix_timestamp(self.attributes.timestamp as i64)
+        OffsetDateTime::from_unix_timestamp(self.attributes.timestamp() as i64)
             .expect("Payload attributes timestamp")
     }
 
     pub fn timestamp_u64(&self) -> u64 {
-        self.attributes.timestamp
+        self.attributes.timestamp()
     }
 
     pub fn block(&self) -> u64 {
@@ -610,7 +648,7 @@ impl ExecutionError {
 
 pub struct FinalizeResult {
     /// Sealed block.
-    pub sealed_block: SealedBlock,
+    pub sealed_block: SealedBlock<Block>,
     // sidecars for all txs in SealedBlock
     pub txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.
@@ -869,7 +907,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             ctx.evm_env.block_env.basefee,
             builder_signer,
             nonce,
-            ctx.attributes.suggested_fee_recipient,
+            ctx.attributes.suggested_fee_recipient(),
             gas_limit,
             value,
         )?;
@@ -943,10 +981,11 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         // Apply withdrawals
         let withdrawals_root = if ctx
             .chain_spec
-            .is_shanghai_active_at_timestamp(ctx.attributes.timestamp)
+            .is_shanghai_active_at_timestamp(ctx.attributes.timestamp())
         {
+            let withdrawals = ctx.attributes.withdrawals();
             let mut balance_increments = HashMap::<Address, u128>::default();
-            for withdrawal in &ctx.attributes.withdrawals {
+            for withdrawal in &withdrawals {
                 if withdrawal.amount > 0 {
                     *balance_increments.entry(withdrawal.address).or_default() +=
                         withdrawal.amount_wei().to::<u128>();
@@ -957,9 +996,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
                 .map_err(|_| {
                     BlockExecutionError::Validation(BlockValidationError::IncrementBalanceFailed)
                 })?;
-            Some(proofs::calculate_withdrawals_root(
-                &ctx.attributes.withdrawals,
-            ))
+            Some(proofs::calculate_withdrawals_root(&withdrawals))
         } else {
             None
         };
@@ -1058,12 +1095,12 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         let mut txs_blob_sidecars: Vec<Arc<BlobTransactionSidecarVariant>> = Vec::new();
         let (excess_blob_gas, blob_gas_used) = if ctx
             .chain_spec
-            .is_cancun_active_at_timestamp(ctx.attributes.timestamp)
+            .is_cancun_active_at_timestamp(ctx.attributes.timestamp())
         {
             // We should NEVER get the wrong sidecar types but we double check here just in case....
             let valid_blobs_count = if ctx
                 .chain_spec
-                .is_osaka_active_at_timestamp(ctx.attributes.timestamp)
+                .is_osaka_active_at_timestamp(ctx.attributes.timestamp())
             {
                 |side_car: &BlobTransactionSidecarVariant| {
                     side_car.as_eip7594().map_or(0, |sc| sc.blobs.len())
@@ -1095,8 +1132,8 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             receipts_root,
             withdrawals_root,
             logs_bloom,
-            timestamp: ctx.attributes.timestamp,
-            mix_hash: ctx.attributes.prev_randao,
+            timestamp: ctx.attributes.timestamp(),
+            mix_hash: ctx.attributes.prev_randao(),
             nonce: BEACON_NONCE.into(),
             base_fee_per_gas: Some(ctx.evm_env.block_env.basefee),
             number: block_number,
@@ -1104,16 +1141,18 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
             difficulty: U256::ZERO,
             gas_used: self.space_state.gas_used(),
             extra_data: ctx.extra_data.clone().into(),
-            parent_beacon_block_root: ctx.attributes.parent_beacon_block_root,
+            parent_beacon_block_root: ctx.attributes.parent_beacon_block_root(),
             blob_gas_used,
             excess_blob_gas,
             requests_hash,
+            block_access_list_hash: None,
+            slot_number: ctx.attributes.slot_number(),
         };
 
         let withdrawals = ctx
             .chain_spec
-            .is_shanghai_active_at_timestamp(ctx.attributes.timestamp)
-            .then(|| ctx.attributes.withdrawals.clone());
+            .is_shanghai_active_at_timestamp(ctx.attributes.timestamp())
+            .then(|| ctx.attributes.withdrawals());
 
         // seal the block
         let block = Block {
@@ -1212,7 +1251,7 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
         // We "pre-use" the RLP overhead for the withdrawals and the block header.
         self.space_state.use_space(BlockSpace::new(
             0,
-            ctx.attributes.withdrawals.length() + BLOCK_HEADER_RLP_OVERHEAD,
+            ctx.attributes.withdrawals().length() + BLOCK_HEADER_RLP_OVERHEAD,
             0,
         ));
 

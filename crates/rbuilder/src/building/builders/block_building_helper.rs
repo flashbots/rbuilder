@@ -266,7 +266,7 @@ impl<
         check_block_hash_reader_health(last_committed_block, &state_provider)?;
 
         let fee_recipient_balance_start = state_provider
-            .account_balance(&building_ctx.attributes.suggested_fee_recipient)?
+            .account_balance(&building_ctx.attributes.suggested_fee_recipient())?
             .unwrap_or_default();
         let mut partial_block =
             PartialBlock::new_with_execution_tracer(discard_txs, partial_block_execution_tracer)
@@ -277,7 +277,7 @@ impl<
             .pre_block_call(&building_ctx, &mut block_state)
             .map_err(|_| BlockBuildingHelperError::PreBlockCallFailed)?;
         let payout_tx_space = estimate_payout_gas_limit(
-            building_ctx.attributes.suggested_fee_recipient,
+            building_ctx.attributes.suggested_fee_recipient(),
             &building_ctx,
             &mut block_state,
             BlockSpace::ZERO,
@@ -368,7 +368,7 @@ impl<
 
         let fee_recipient_balance_after = self
             .block_state
-            .balance(self.building_ctx.attributes.suggested_fee_recipient)?;
+            .balance(self.building_ctx.attributes.suggested_fee_recipient())?;
         let fee_recipient_balance_diff = fee_recipient_balance_after
             .checked_sub(self._fee_recipient_balance_start)
             .unwrap_or_default();

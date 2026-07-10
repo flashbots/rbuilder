@@ -12,7 +12,10 @@ mod test_data_generator;
 use alloy_consensus::Transaction as _;
 use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Encodable2718},
-    eip4844::{Blob, BlobTransactionSidecar, Bytes48, DATA_GAS_PER_BLOB},
+    eip4844::{
+        Blob, BlobTransactionSidecar, Bytes48, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
+        BYTES_PER_PROOF, DATA_GAS_PER_BLOB,
+    },
     eip7594::BlobTransactionSidecarVariant,
     Typed2718,
 };
@@ -21,12 +24,8 @@ use alloy_rlp::Encodable as _;
 use derivative::Derivative;
 use evm_inspector::UsedStateTrace;
 use integer_encoding::VarInt;
-use reth_ethereum_primitives::PooledTransactionVariant;
-use reth_primitives::{
-    kzg::{BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF},
-    Recovered, Transaction, TransactionSigned,
-};
-use reth_primitives_traits::{InMemorySize, SignedTransaction as _, SignerRecoverable};
+use reth_ethereum_primitives::{PooledTransactionVariant, Transaction, TransactionSigned};
+use reth_primitives_traits::{InMemorySize, Recovered, SignedTransaction as _, SignerRecoverable};
 use reth_transaction_pool::{
     BlobStore, BlobStoreError, EthPooledTransaction, Pool, TransactionOrdering, TransactionPool,
     TransactionValidator,
@@ -1223,7 +1222,7 @@ mod tests {
     use super::*;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{fixed_bytes, Signature};
-    use reth_primitives::{Transaction, TransactionSigned};
+    use reth_ethereum_primitives::{Transaction, TransactionSigned};
     use uuid::uuid;
 
     #[test]

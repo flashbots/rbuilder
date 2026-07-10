@@ -1,12 +1,11 @@
 use ahash::HashMap;
 use alloy_consensus::ReceiptWithBloom;
 use alloy_eips::Encodable2718;
-use alloy_primitives::{Bloom, Bytes, B256};
+use alloy_primitives::{Bloom, Bytes, Log, B256};
 use alloy_trie::{proof::ProofRetainer, root::adjust_index_for_rlp, HashBuilder, Nibbles};
 use eth_sparse_mpt::v2::trie::{proof_store::ProofStore, Trie};
 use itertools::Itertools;
-use reth::primitives::Receipt;
-use reth_primitives::Log;
+use reth_ethereum_primitives::Receipt;
 
 use crate::building::TransactionExecutionInfo;
 
@@ -284,9 +283,8 @@ pub fn ordered_trie_root_and_proof(items: &[Bytes], proof_index: usize) -> (B256
 #[cfg(test)]
 mod tests {
     use alloy_consensus::{TxReceipt, TxType};
-    use alloy_primitives::{address, fixed_bytes};
+    use alloy_primitives::{address, fixed_bytes, logs_bloom, Log, LogData};
     use rbuilder_primitives::BlockSpace;
-    use reth_primitives::{logs_bloom, Log, LogData};
 
     use crate::utils::test_utils::tx;
 

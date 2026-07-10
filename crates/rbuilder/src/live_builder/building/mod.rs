@@ -123,7 +123,7 @@ where
 
         let blob_type_order_filter: Box<dyn ReplaceableOrderSink> = if block_ctx
             .chain_spec
-            .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp)
+            .is_osaka_active_at_timestamp(block_ctx.attributes.timestamp())
         {
             Box::new(BlobTypeOrderFilter::new_fusaka(Box::new(
                 order_replacement_manager,

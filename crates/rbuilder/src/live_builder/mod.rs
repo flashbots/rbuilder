@@ -46,7 +46,8 @@ use reth::transaction_pool::{
     TransactionPool, TransactionValidator,
 };
 use reth_chainspec::ChainSpec;
-use reth_primitives::{Recovered, TransactionSigned};
+use reth_ethereum_primitives::TransactionSigned;
+use reth_primitives_traits::Recovered;
 use std::{
     cmp::min,
     fmt::Debug,

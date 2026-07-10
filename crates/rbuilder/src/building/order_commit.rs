@@ -19,8 +19,8 @@ use rbuilder_primitives::{
 };
 use reth::consensus_common::validation::MAX_RLP_BLOCK_SIZE;
 use reth_errors::ProviderError;
+use reth_ethereum_primitives::Receipt;
 use reth_evm::{Evm, EvmEnv};
-use reth_primitives::Receipt;
 use revm::{
     context::result::{ExecutionResult, ResultAndState},
     context_interface::result::{EVMError, InvalidTransaction},
@@ -652,7 +652,7 @@ impl<
         };
 
         if let Some(tracer) = &mut self.tracer {
-            tracer.add_gas_used(res.result.gas_used());
+            tracer.add_gas_used(res.result.tx_gas_used());
             if let (true, Some(t)) = (is_recording_used_state, used_state_trace) {
                 tracer.add_used_state_trace(t)
             }
@@ -666,7 +666,7 @@ impl<
 
         // add gas used by the transaction to cumulative gas used, before creating the receipt
         let space_used = BlockSpace::new(
-            res.result.gas_used(),
+            res.result.tx_gas_used(),
             tx_with_blobs.internal_tx_unsecure().length(),
             blob_gas_used,
         );
@@ -1147,9 +1147,10 @@ where
             EVMError::Transaction(tx_err) => {
                 return Ok(Err(TransactionErr::InvalidTransaction(tx_err)))
             }
-            EVMError::Database(_) | EVMError::Header(_) | EVMError::Custom(_) => {
-                return Err(err.into())
-            }
+            EVMError::Database(_)
+            | EVMError::Header(_)
+            | EVMError::Custom(_)
+            | EVMError::CustomAny(_) => return Err(err.into()),
         },
     };
     drop(evm);

@@ -17,4 +17,4 @@ recipe:
         release:
           name: reth
           org: paradigmxyz
-          version: v1.11.3
+          version: v2.2.0

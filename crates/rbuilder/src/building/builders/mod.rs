@@ -22,7 +22,8 @@ use ahash::HashSet;
 use alloy_eips::eip7594::BlobTransactionSidecarVariant;
 use alloy_primitives::{Address, Bytes};
 use rbuilder_primitives::{mev_boost::BidAdjustmentDataV3, AccountNonce, OrderId, SimulatedOrder};
-use reth::primitives::SealedBlock;
+use reth_ethereum_primitives::Block as EthereumBlock;
+use reth_primitives_traits::SealedBlock;
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -51,7 +52,7 @@ const ORDERS_CONSUMED_PER_BATCH: usize = 8192;
 pub struct Block {
     pub builder_name: String,
     pub trace: BuiltBlockTrace,
-    pub sealed_block: SealedBlock,
+    pub sealed_block: SealedBlock<EthereumBlock>,
     /// Sidecars for the txs included in SealedBlock
     pub txs_blobs_sidecars: Vec<Arc<BlobTransactionSidecarVariant>>,
     /// The Pectra execution requests for this bid.

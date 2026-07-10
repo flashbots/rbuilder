@@ -4,7 +4,9 @@ use fetch::MissingNodesFetcher;
 use nybbles::Nibbles;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
-use reth_provider::{providers::ConsistentDbView, BlockReader, DatabaseProviderFactory};
+use reth_provider::{
+    providers::ConsistentDbView, BlockReader, DatabaseProviderFactory, StorageSettingsCache,
+};
 use reth_trie::TrieAccount;
 use revm::{
     database::{BundleAccount, BundleState},
@@ -259,6 +261,7 @@ pub fn prefetch_proofs<'a, Provider>(
 ) -> Result<SparseTrieMetrics, SparseTrieError>
 where
     Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+    <Provider as DatabaseProviderFactory>::Provider: StorageSettingsCache,
 {
     let mut metrics = SparseTrieMetrics::default();
     let mut fetcher = MissingNodesFetcher::default();
@@ -430,6 +433,7 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+        <Provider as DatabaseProviderFactory>::Provider: StorageSettingsCache,
     {
         stats.start();
 
@@ -626,6 +630,7 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+        <Provider as DatabaseProviderFactory>::Provider: StorageSettingsCache,
     {
         let fetcher = Arc::new(Mutex::new(MissingNodesFetcher::default()));
 
@@ -913,6 +918,7 @@ impl RootHashCalculator {
     ) -> Result<(), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+        <Provider as DatabaseProviderFactory>::Provider: StorageSettingsCache,
     {
         let mut fetcher = MissingNodesFetcher::default();
 
@@ -971,6 +977,7 @@ impl RootHashCalculator {
     ) -> Result<(B256, HashMap<Address, Vec<Bytes>>, SparseTrieMetrics), SparseTrieError>
     where
         Provider: DatabaseProviderFactory<Provider: BlockReader> + Send + Sync,
+        <Provider as DatabaseProviderFactory>::Provider: StorageSettingsCache,
     {
         if !incremental_change.is_empty() {
             self.incremental_account_change.extend(incremental_change);

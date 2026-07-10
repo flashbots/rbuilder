@@ -16,7 +16,7 @@ use dashmap::DashMap;
 use quick_cache::sync::Cache;
 use reipc::rpc_provider::RpcProvider;
 use reth_errors::{ProviderError, ProviderResult};
-use reth_primitives::{Account, Bytecode};
+use reth_primitives_traits::{Account, Bytecode};
 use reth_provider::{
     errors::any::AnyError, AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider,
     StateProofProvider, StateProvider, StateProviderBox, StateRootProvider, StorageRootProvider,
@@ -285,16 +285,6 @@ impl StateProvider for IpcStateProvider {
 
         Ok(storage)
     }
-
-    /// Get storage using a pre-hashed storage key. Unsupported over IPC: the plain storage key
-    /// required by `eth_getStorageAt` cannot be recovered from its hash.
-    fn storage_by_hashed_key(
-        &self,
-        _account: Address,
-        _hashed_storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        Err(ProviderError::UnsupportedProvider)
-    }
 }
 
 impl BlockHashReader for IpcStateProvider {
@@ -426,7 +416,12 @@ impl StateProofProvider for IpcStateProvider {
         unimplemented!()
     }
 
-    fn witness(&self, _input: TrieInput, _target: HashedPostState) -> ProviderResult<Vec<Bytes>> {
+    fn witness(
+        &self,
+        _input: TrieInput,
+        _target: HashedPostState,
+        _mode: reth_trie::ExecutionWitnessMode,
+    ) -> ProviderResult<Vec<Bytes>> {
         unimplemented!()
     }
 }

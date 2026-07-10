@@ -1,4 +1,5 @@
-use reth_primitives::SealedBlock;
+use reth_ethereum_primitives::Block;
+use reth_primitives_traits::SealedBlock;
 
 use crate::{building::BuiltBlockTrace, live_builder::payload_events::MevBoostSlotData};
 

@@ -425,8 +425,8 @@ mod tests {
         evm_inspector::{SlotKey, UsedStateTrace},
         MempoolTx, Order, SimValue, SimulatedOrder, TransactionSignedEcRecoveredWithBlobs,
     };
-    use reth::primitives::{Transaction, TransactionSigned};
-    use reth_primitives::Recovered;
+    use reth_ethereum_primitives::{Transaction, TransactionSigned};
+    use reth_primitives_traits::Recovered;
     use std::sync::Arc;
 
     use std::sync::mpsc;

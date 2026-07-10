@@ -4,9 +4,9 @@ use alloy_eips::BlockNumHash;
 use alloy_primitives::{BlockHash, BlockNumber, B256};
 use reth_errors::ProviderResult;
 use reth_provider::{
-    BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory, HeaderProvider,
-    PruneCheckpointReader, StageCheckpointReader, StateProviderBox, StorageChangeSetReader,
-    StorageSettingsCache,
+    BlockNumReader, BlockReader, ChangeSetReader, DBProvider, DatabaseProviderFactory,
+    HeaderProvider, PruneCheckpointReader, StageCheckpointReader, StateProviderBox,
+    StorageChangeSetReader, StorageSettingsCache,
 };
 use tracing::error;
 
@@ -37,6 +37,7 @@ where
                           + ChangeSetReader
                           + StorageChangeSetReader
                           + DBProvider
+                          + BlockNumReader
                           + StorageSettingsCache,
         > + reth_provider::StateProviderFactory
         + reth_provider::HashedPostStateProvider
