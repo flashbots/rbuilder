@@ -510,6 +510,17 @@ impl TxArgs {
             .value(value)
     }
 
+    /// This transaction for test purpose only, it reads the code hash and size of the given address.
+    pub fn new_test_read_code(from: NamedAddr, nonce: u64, target: Address) -> Self {
+        Self::new(from, nonce).to(NamedAddr::MevTest).input(
+            [
+                (*TEST_READ_CODE).into(),
+                B256::left_padding_from(target.as_slice()).to_vec(),
+            ]
+            .concat(),
+        )
+    }
+
     /// This transaction for test purpose only, it deploys a contract and let it selfdestruct within the tx.
     pub fn new_test_ephemeral_contract_destruct(
         from: NamedAddr,
@@ -589,6 +600,7 @@ lazy_static! {
     static ref TEST_READ_BALANCE: [u8; 4] = selector("testReadBalance(address)");
     static ref TEST_EPHEMERAL_CONTRACT_DESTRUCT: [u8; 4] =
         selector("testEphemeralContractDestruct(address)");
+    static ref TEST_READ_CODE: [u8; 4] = selector("testReadCode(address)");
 }
 
 impl TestContracts {

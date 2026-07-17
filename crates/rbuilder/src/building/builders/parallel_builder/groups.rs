@@ -29,6 +29,7 @@ struct GroupData {
     writes: Vec<SlotKey>,
     balance_reads: Vec<Address>,
     balance_writes: Vec<Address>,
+    code_reads: Vec<Address>,
     code_writes: Vec<Address>,
     conflicting_group_ids: HashSet<usize>,
 }
@@ -41,6 +42,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
     let mut writes = Vec::default();
     let mut balance_reads = Vec::default();
     let mut balance_writes = Vec::default();
+    let mut code_reads = Vec::default();
     let mut code_writes = Vec::default();
     let mut conflicting_group_ids = removed_group_ids.into_iter().collect::<HashSet<usize>>();
     for group in groups {
@@ -49,6 +51,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
         writes.extend(group.writes);
         balance_reads.extend(group.balance_reads);
         balance_writes.extend(group.balance_writes);
+        code_reads.extend(group.code_reads);
         code_writes.extend(group.code_writes);
         conflicting_group_ids.extend(group.conflicting_group_ids);
     }
@@ -60,6 +63,8 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
     balance_reads.dedup();
     balance_writes.sort_unstable();
     balance_writes.dedup();
+    code_reads.sort_unstable();
+    code_reads.dedup();
     code_writes.sort_unstable();
     code_writes.dedup();
 
@@ -69,6 +74,7 @@ fn combine_groups(groups: Vec<GroupData>, removed_group_ids: Vec<usize>) -> Grou
         writes,
         balance_reads,
         balance_writes,
+        code_reads,
         code_writes,
         conflicting_group_ids,
     }
@@ -82,6 +88,7 @@ pub struct ConflictFinder {
     group_writes: HashMap<Address, HashMap<B256, Vec<usize>>>, // same as above
     group_balance_reads: HashMap<Address, Vec<usize>>,
     group_balance_writes: HashMap<Address, Vec<usize>>,
+    group_code_reads: HashMap<Address, Vec<usize>>,
     group_code_writes: HashMap<Address, Vec<usize>>,
     groups: HashMap<usize, GroupData>,
     orders: HashSet<OrderId>,
@@ -95,6 +102,7 @@ impl ConflictFinder {
             group_writes: HashMap::default(),
             group_balance_reads: HashMap::default(),
             group_balance_writes: HashMap::default(),
+            group_code_reads: HashMap::default(),
             group_code_writes: HashMap::default(),
             groups: HashMap::default(),
             orders: HashSet::default(),
@@ -176,6 +184,16 @@ impl ConflictFinder {
                     let inner_groups = inner_mapping.values().flatten();
                     all_groups_in_conflict.extend(inner_groups);
                 }
+                // trying to create / destroy a contract other order is reading code from
+                if let Some(group) = self.group_code_reads.get(contract_addr) {
+                    all_groups_in_conflict.extend_from_slice(group);
+                }
+            }
+            // reading code of a contract other order is creating / destroying
+            for code_read_addr in &used_state.read_code_addresses {
+                if let Some(group) = self.group_code_writes.get(code_read_addr) {
+                    all_groups_in_conflict.extend_from_slice(group);
+                }
             }
             all_groups_in_conflict.sort();
             all_groups_in_conflict.dedup();
@@ -198,12 +216,18 @@ impl ConflictFinder {
                 code_writes.sort_unstable();
                 code_writes.dedup();
 
+                let mut code_reads: Vec<Address> =
+                    used_state.read_code_addresses.into_iter().collect();
+                code_reads.sort_unstable();
+                code_reads.dedup();
+
                 GroupData {
                     orders: vec![order],
                     reads: used_state.read_slot_values.into_keys().collect(),
                     writes: used_state.written_slot_values.into_keys().collect(),
                     balance_reads: used_state.read_balances.into_keys().collect(),
                     balance_writes,
+                    code_reads,
                     code_writes,
                     conflicting_group_ids: HashSet::default(),
                 }
@@ -278,6 +302,12 @@ impl ConflictFinder {
         add_group_to_map(
             group_id,
             is_new_id,
+            &group_data.code_reads,
+            &mut self.group_code_reads,
+        );
+        add_group_to_map(
+            group_id,
+            is_new_id,
             &group_data.code_writes,
             &mut self.group_code_writes,
         );
@@ -302,6 +332,7 @@ impl ConflictFinder {
             &group_data.balance_writes,
             &mut self.group_balance_writes,
         );
+        remove_group_from_map(group_id, &group_data.code_reads, &mut self.group_code_reads);
         remove_group_from_map(
             group_id,
             &group_data.code_writes,
@@ -441,6 +472,28 @@ mod tests {
             contract_creation: Option<&Address>,
             contract_destruction: Option<&Address>,
         ) -> Arc<SimulatedOrder> {
+            self.create_order_with_code_read(
+                read,
+                write,
+                balance_read,
+                balance_write,
+                contract_creation,
+                contract_destruction,
+                None,
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        pub fn create_order_with_code_read(
+            &mut self,
+            read: Option<&SlotKey>,
+            write: Option<&SlotKey>,
+            balance_read: Option<&Address>,
+            balance_write: Option<&Address>,
+            contract_creation: Option<&Address>,
+            contract_destruction: Option<&Address>,
+            code_read: Option<&Address>,
+        ) -> Arc<SimulatedOrder> {
             let mut trace = UsedStateTrace::default();
             if let Some(read) = read {
                 trace
@@ -468,6 +521,9 @@ mod tests {
             }
             if let Some(contract_address) = contract_destruction {
                 trace.destructed_contracts.push(*contract_address);
+            }
+            if let Some(code_read_addr) = code_read {
+                trace.read_code_addresses.insert(*code_read_addr);
             }
 
             Arc::new(SimulatedOrder::new(
@@ -592,6 +648,74 @@ mod tests {
         let oc = data_gen.create_order(None, None, None, None, None, Some(&destruction_addr));
         let mut cached_groups = ConflictFinder::new();
         cached_groups.add_orders(vec![oa, ob, oc]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn two_code_reads_no_conflict() {
+        let mut data_gen = DataGenerator::new();
+        let addr = Address::random();
+        let oa =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let ob =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 2);
+    }
+
+    #[test]
+    fn code_read_and_creation_conflict() {
+        let mut data_gen = DataGenerator::new();
+        let addr = Address::random();
+        let oa =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let ob = data_gen.create_order(None, None, None, None, Some(&addr), None);
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn code_read_and_destruction_conflict() {
+        let mut data_gen = DataGenerator::new();
+        let addr = Address::random();
+        let oa =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let ob = data_gen.create_order(None, None, None, None, None, Some(&addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn creation_then_code_read_conflict() {
+        let mut data_gen = DataGenerator::new();
+        let addr = Address::random();
+        // code_write first, then code_read — tests the reverse direction
+        let oa = data_gen.create_order(None, None, None, None, Some(&addr), None);
+        let ob =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
+        let groups = cached_groups.get_order_groups();
+        assert_eq!(groups.len(), 1);
+    }
+
+    #[test]
+    fn destruction_then_code_read_conflict() {
+        let mut data_gen = DataGenerator::new();
+        let addr = Address::random();
+        // code_write first, then code_read — tests the reverse direction
+        let oa = data_gen.create_order(None, None, None, None, None, Some(&addr));
+        let ob =
+            data_gen.create_order_with_code_read(None, None, None, None, None, None, Some(&addr));
+        let mut cached_groups = ConflictFinder::new();
+        cached_groups.add_orders(vec![oa, ob]);
         let groups = cached_groups.get_order_groups();
         assert_eq!(groups.len(), 1);
     }

@@ -53,4 +53,12 @@ contract MevTest {
         EphemeralContractTest ephemeral_contract = new EphemeralContractTest();
         ephemeral_contract.destruct{value: msg.value}(refund);
     }
+
+    /// Reads the code hash and code size of the given address, for testing evm inspector with extcodehash/extcodesize opcodes.
+    function testReadCode(address target) public view returns (bytes32 h, uint256 s) {
+        assembly {
+            h := extcodehash(target)
+            s := extcodesize(target)
+        }
+    }
 }

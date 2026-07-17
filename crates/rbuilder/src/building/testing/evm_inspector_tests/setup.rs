@@ -70,6 +70,15 @@ impl TestSetup {
         Ok(tx)
     }
 
+    pub fn make_test_read_code_tx(
+        &self,
+        target: Address,
+    ) -> eyre::Result<Recovered<TransactionSigned>> {
+        let tx_args = TxArgs::new_test_read_code(NamedAddr::User(0), 0, target);
+        let tx = self.test_chain.sign_tx(tx_args)?;
+        Ok(tx)
+    }
+
     pub fn make_test_ephemeral_contract_destruct_tx(
         &self,
         refund_addr: Address,

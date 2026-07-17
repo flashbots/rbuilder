@@ -1,4 +1,4 @@
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use alloy_consensus::Transaction;
 use alloy_primitives::{Address, B256, U256};
 use alloy_rpc_types::AccessList;
@@ -35,6 +35,8 @@ pub struct UsedStateTrace {
     pub sent_amount: HashMap<Address, U256>,
     pub created_contracts: Vec<Address>,
     pub destructed_contracts: Vec<Address>,
+    /// addresses whose code was read via EXTCODEHASH, EXTCODESIZE, or EXTCODECOPY
+    pub read_code_addresses: HashSet<Address>,
 }
 
 impl UsedStateTrace {
@@ -75,6 +77,8 @@ impl UsedStateTrace {
             }
             self.destructed_contracts.push(*address);
         }
+
+        self.read_code_addresses.extend(&other.read_code_addresses);
     }
 
     pub fn clear(&mut self) {
@@ -85,6 +89,7 @@ impl UsedStateTrace {
         self.sent_amount.clear();
         self.created_contracts.clear();
         self.destructed_contracts.clear();
+        self.read_code_addresses.clear();
     }
 }
 
@@ -197,6 +202,12 @@ where
             opcode::SELFBALANCE => {
                 let addr = interpreter.input.target_address;
                 self.next_step_action = NextStepAction::ReadBalanceResult(addr);
+            }
+            opcode::EXTCODEHASH | opcode::EXTCODESIZE | opcode::EXTCODECOPY => {
+                if let Ok(addr) = interpreter.stack.peek(0) {
+                    let addr = Address::from_word(B256::from(addr.to_be_bytes()));
+                    self.used_state_trace.read_code_addresses.insert(addr);
+                }
             }
             _ => (),
         }
