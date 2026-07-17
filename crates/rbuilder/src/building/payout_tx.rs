@@ -174,10 +174,13 @@ where
         .cfg_env
         .tx_gas_limit_cap
         .unwrap_or(ctx.evm_env.block_env.gas_limit);
-    let gas_left = max_tx_gas_limit
-        .checked_sub(space_used.gas)
-        .unwrap_or_default();
-    let estimation = insert_test_payout_tx(to, ctx, state, gas_left)?
+    let max_payout_gas_limit = max_tx_gas_limit.min(
+        ctx.evm_env
+            .block_env
+            .gas_limit
+            .saturating_sub(space_used.gas),
+    );
+    let estimation = insert_test_payout_tx(to, ctx, state, max_payout_gas_limit)?
         .ok_or(EstimatePayoutGasErr::FailedToEstimate)?;
 
     if insert_test_payout_tx(to, ctx, state, estimation)?.is_some() {
@@ -189,7 +192,7 @@ where
     }
 
     let mut left = estimation;
-    let mut right = gas_left;
+    let mut right = max_payout_gas_limit;
 
     // binary search for perfect gas limit
     loop {
@@ -227,8 +230,9 @@ mod tests {
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
-    #[test]
-    fn estimate_payout_tx_gas_limit() {
+    fn setup(
+        tx_gas_limit_cap: Option<u64>,
+    ) -> (Address, BlockBuildingContext, BlockState<CachedDB>) {
         let signer = Signer::random();
         let proposer = Address::random();
         let chain_spec = MAINNET.clone();
@@ -261,7 +265,7 @@ mod tests {
         block.header.mix_hash = B256::random();
         block.header.number = EthereumHardfork::Prague.mainnet_activation_block().unwrap();
         block.header.excess_blob_gas = Some(1000);
-        let ctx = BlockBuildingContext::from_onchain_block(
+        let mut ctx = BlockBuildingContext::from_onchain_block(
             block,
             chain_spec,
             Some(spec_id),
@@ -273,15 +277,59 @@ mod tests {
             false,
             U256::ZERO,
         );
+        ctx.evm_env.cfg_env.tx_gas_limit_cap = tx_gas_limit_cap;
+
         let cached = CachedDB::new(
             provider_factory.latest().unwrap(),
             Arc::new(SharedCachedReads::default()),
         );
-        let mut state = BlockState::new(cached);
+        let state = BlockState::new(cached);
+        (proposer, ctx, state)
+    }
 
-        let estimate_result =
-            estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
-        assert_matches!(estimate_result, Ok(_));
-        assert_eq!(estimate_result.unwrap().gas, 21_000);
+    #[test]
+    fn estimate_payout_tx_gas_limit() {
+        // Pre Fusaka block: no per-tx cap.
+        let (proposer, ctx, mut state) = setup(None);
+
+        let empty_block = estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
+        assert_matches!(empty_block, Ok(_));
+        assert_eq!(empty_block.unwrap().gas, 21_000);
+
+        // Only 10k gas left in the block.
+        let full_block = estimate_payout_gas_limit(
+            proposer,
+            &ctx,
+            &mut state,
+            BlockSpace::new(29_990_000, 0, 0),
+        );
+        assert_matches!(full_block, Err(_));
+
+        // Post Fusaka block: EIP-7825 caps one tx at 16,777,216 gas
+        let (proposer, ctx, mut state) = setup(Some(16_777_216));
+
+        let empty_block = estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
+        assert_matches!(empty_block, Ok(_));
+        assert_eq!(empty_block.unwrap().gas, 21_000);
+
+        // 20M gas is already used. This is more than the single-transaction limit,
+        // but 10M of block space is still available.
+        let past_cap = estimate_payout_gas_limit(
+            proposer,
+            &ctx,
+            &mut state,
+            BlockSpace::new(20_000_000, 0, 0),
+        );
+        assert_matches!(past_cap, Ok(_));
+        assert_eq!(past_cap.unwrap().gas, 21_000);
+
+        // Only 10k gas left in the block.
+        let full_block = estimate_payout_gas_limit(
+            proposer,
+            &ctx,
+            &mut state,
+            BlockSpace::new(29_990_000, 0, 0),
+        );
+        assert_matches!(full_block, Err(_));
     }
 }
