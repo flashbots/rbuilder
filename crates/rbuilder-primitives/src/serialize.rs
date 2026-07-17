@@ -3,6 +3,7 @@ use super::{
     Metadata, Order, RawTransactionDecodable, TransactionSignedEcRecoveredWithBlobs,
     TxWithBlobsCreateError, LAST_BUNDLE_VERSION,
 };
+use crate::evm_inspector::SlotKey;
 use alloy_consensus::constants::EIP4844_TX_TYPE_ID;
 use alloy_eips::eip2718::Eip2718Error;
 use alloy_primitives::{Address, Bytes, TxHash, B256, U64};
@@ -87,6 +88,15 @@ where
     deserialize_vec_from_null_or_string(deserializer)
 }
 
+/// Wire representation of a single storage slot a bundle targets: a contract `address` and the
+/// 32-byte `slot` key. Maps to [`SlotKey`] on the domain [`Bundle`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RawTargetStorageSlot {
+    pub address: Address,
+    pub slot: B256,
+}
+
 /// Struct to de/serialize JSON bundles data from bundles APIs and from/db, except transactions.
 /// To be used long with `RawBundle<T>`.
 #[serde_as]
@@ -156,6 +166,11 @@ pub struct RawBundleMetadata {
     /// Disable multiplexing bundle to other region builders.
     #[serde(default, skip_serializing_if = "is_false")]
     pub disable_cross_region_sharing: bool,
+    /// targetStorageSlots (Optional) `Array[{address,slot}]`, storage slots this bundle targets so
+    /// the builder attempts it only after an order writes one of them (blind backrunning).
+    /// Only for version None or >= v2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_storage_slots: Vec<RawTargetStorageSlot>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -244,7 +259,15 @@ impl RawBundleMetadata {
                         version,
                     ));
                 }
-                Ok(())
+                self.target_storage_slots
+                    .is_empty()
+                    .then_some(())
+                    .ok_or_else(|| {
+                        RawBundleConvertError::FieldNotSupportedByVersion(
+                            "target_storage_slots".to_owned(),
+                            version,
+                        )
+                    })
             }
             BundleVersion::V2 => Ok(()),
         }
@@ -396,6 +419,14 @@ impl RawBundle {
             refund,
             version,
             external_hash: metadata.bundle_hash,
+            target_storage_slots: metadata
+                .target_storage_slots
+                .iter()
+                .map(|s| SlotKey {
+                    address: s.address,
+                    key: s.slot,
+                })
+                .collect(),
         };
         bundle.hash_slow();
         Ok(RawBundleDecodeResult::NewBundle(bundle))
@@ -432,6 +463,14 @@ impl RawBundle {
                 version: Some(Self::encode_version(value.version)),
                 bundle_hash: value.external_hash,
                 disable_cross_region_sharing: value.metadata.disable_cross_region_sharing,
+                target_storage_slots: value
+                    .target_storage_slots
+                    .iter()
+                    .map(|s| RawTargetStorageSlot {
+                        address: s.address,
+                        slot: s.key,
+                    })
+                    .collect(),
             },
         }
     }
@@ -870,6 +909,47 @@ mod tests {
         assert_eq!(bundle.uuid, uuid!("e2bdb8cd-9473-5a1b-b425-57fa7ecfe2c1"));
     }
 
+    #[test]
+    fn test_correct_bundle_decoding_target_storage_slots_v2() {
+        let bundle_json = r#"
+        {
+            "version": "v2",
+            "txs": [
+                "0x02f86b83aa36a780800982520894f24a01ae29dec4629dfb4170647c4ed4efc392cd861ca62a4c95b880c080a07d37bb5a4da153a6fbe24cf1f346ef35748003d1d0fc59cf6c17fb22d49e42cea02c231ac233220b494b1ad501c440c8b1a34535cdb8ca633992d6f35b14428672"
+            ],
+            "blockNumber": 0,
+            "targetStorageSlots": [
+                {
+                    "address": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
+                    "slot": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                }
+            ]
+        }"#;
+
+        let bundle_request: RawBundle =
+            serde_json::from_str(bundle_json).expect("failed to decode bundle");
+
+        let bundle = bundle_request
+            .clone()
+            .decode_new_bundle(TxEncoding::WithBlobData)
+            .expect("failed to convert bundle request to bundle");
+
+        assert_eq!(
+            bundle.target_storage_slots,
+            vec![SlotKey {
+                address: address!("0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5"),
+                key: b256!("0x0000000000000000000000000000000000000000000000000000000000000001"),
+            }]
+        );
+
+        // The targeted slots survive a domain -> wire round-trip.
+        let reencoded = RawBundle::encode_no_blobs(bundle);
+        assert_eq!(
+            reencoded.metadata.target_storage_slots,
+            bundle_request.metadata.target_storage_slots
+        );
+    }
+
     /// If refundTxHashes is missing it should use the last tx and the id should be the same.
     #[test]
     fn test_correct_bundle_decoding_refund_hash_missing() {
@@ -1035,6 +1115,7 @@ mod tests {
             r#" "refundTxHashes": ["0x75662ab9cb6d1be7334723db5587435616352c7e581a52867959ac24006ac1fe"] "#,
             r#" "delayedRefund": true "#,
             r#" "disableCrossRegionSharing": true "#,
+            r#" "targetStorageSlots": [{"address": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5", "slot": "0x0000000000000000000000000000000000000000000000000000000000000001"}] "#,
         ];
 
         for field in extra_invalid_fields {

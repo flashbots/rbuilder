@@ -745,6 +745,7 @@ mod test {
                         version: Some(RawBundle::encode_version(LAST_BUNDLE_VERSION)),
                         bundle_hash: None,
                         disable_cross_region_sharing: false,
+                        target_storage_slots: Default::default(),
                     },
                 })),
             }

@@ -536,6 +536,7 @@ mod tests {
                 refund_identity: None,
                 version: LAST_BUNDLE_VERSION,
                 external_hash: None,
+                target_storage_slots: Default::default(),
             };
 
             Arc::new(SimulatedOrder::new(

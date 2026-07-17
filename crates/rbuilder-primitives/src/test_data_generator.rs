@@ -102,6 +102,7 @@ impl TestDataGenerator {
             refund: None,
             version: LAST_BUNDLE_VERSION,
             external_hash: None,
+            target_storage_slots: vec![],
         };
         res.hash_slow();
         res
@@ -139,6 +140,7 @@ impl TestDataGenerator {
             refund: None,
             version: LAST_BUNDLE_VERSION,
             external_hash: None,
+            target_storage_slots: vec![],
         };
         bundle.hash_slow();
         bundle

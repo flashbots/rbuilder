@@ -121,7 +121,8 @@ pub fn block_orders_from_sim_orders<OrderPriorityType: OrderPriority>(
 
 #[cfg(test)]
 mod test {
-    use rbuilder_primitives::BundledTxInfo;
+    use alloy_primitives::{Address, B256};
+    use rbuilder_primitives::{evm_inspector::SlotKey, BundledTxInfo, Order};
 
     use super::{
         order_priority::{FullProfitInfoGetter, OrderMaxProfitPriority},
@@ -197,6 +198,23 @@ mod test {
             let order = self
                 .data_gen
                 .create_sim_order(order, bundle_profit, bundle_profit);
+            self.order_pool.insert_order(order.clone());
+            order
+        }
+
+        /// Like `create_add_bundle_order` but the bundle declares the storage slots it targets, so
+        /// it stays pending until one of those slots is written (blind backrunning, issue #27).
+        pub fn create_add_bundle_order_with_target_slots(
+            &mut self,
+            txs_info: &[BundledTxInfo],
+            bundle_profit: u64,
+            target_storage_slots: Vec<SlotKey>,
+        ) -> Arc<SimulatedOrder> {
+            let mut bundle = self.data_gen.base.create_bundle_multi_tx(0, txs_info, None);
+            bundle.target_storage_slots = target_storage_slots;
+            let order =
+                self.data_gen
+                    .create_sim_order(Order::Bundle(bundle), bundle_profit, bundle_profit);
             self.order_pool.insert_order(order.clone());
             order
         }
@@ -314,6 +332,36 @@ mod test {
         // Even with the first tx failing because of nonce_1 the bundle should be valid
         context.assert_pop_order(&bundle_order);
         // No more orders
+        context.assert_pop_none();
+    }
+
+    #[test]
+    /// A bundle that targets a storage slot is only attemptable once an order writes that slot.
+    fn test_block_orders_target_storage_slots() {
+        let (nonce, mut context) = TestContext::new_1_account(0);
+        let target = SlotKey {
+            address: Address::repeat_byte(0x11),
+            key: B256::repeat_byte(0x22),
+        };
+        let unrelated = SlotKey {
+            address: Address::repeat_byte(0x33),
+            key: B256::repeat_byte(0x44),
+        };
+        let txs_info = [BundledTxInfo {
+            nonce: nonce.clone(),
+            optional: false,
+        }];
+        let backrun =
+            context.create_add_bundle_order_with_target_slots(&txs_info, 5, vec![target.clone()]);
+
+        // Nonce is satisfied but the target slot has not been written -> not attemptable yet.
+        context.assert_pop_none();
+        // Writing an unrelated slot must not release it.
+        context.order_pool.notify_slots_written(&[unrelated]);
+        context.assert_pop_none();
+        // Writing the target slot releases it for inclusion.
+        context.order_pool.notify_slots_written(&[target]);
+        context.assert_pop_order(&backrun);
         context.assert_pop_none();
     }
 }

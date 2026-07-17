@@ -443,6 +443,20 @@ impl OrderingBuilderContext {
                         })
                         .collect();
                     block_orders.update_onchain_nonces(&nonces_updated);
+                    // Release any bundle waiting to be attempted after this order wrote one of its
+                    // target storage slots (blind backrunning, see issue #27). The order's
+                    // simulation trace already records the slots it writes. Note the trace also
+                    // records a synthetic write to the signer's slot 0 for nonce tracking, so a
+                    // bundle targeting {eoa, 0x0} may be released by any tx from that account; this
+                    // is a benign over-report (never a missed release) rather than a miss.
+                    if let Some(trace) = &sim_order.used_state_trace {
+                        let written_slots = trace
+                            .written_slot_values
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        block_orders.notify_slots_written(&written_slots);
+                    }
                 }
                 Err(err) => {
                     if let ExecutionError::LowerInsertedValue { inplace, .. } = &err {
