@@ -6,7 +6,8 @@ use priority_queue::PriorityQueue;
 
 use crate::telemetry::mark_order_not_ready_for_immediate_inclusion;
 use rbuilder_primitives::{
-    order_statistics::OrderStatistics, AccountNonce, Nonce, OrderId, SimulatedOrder,
+    evm_inspector::SlotKey, order_statistics::OrderStatistics, AccountNonce, Nonce, OrderId,
+    SimulatedOrder,
 };
 
 use super::{OrderPriority, SimulatedOrderSink};
@@ -37,6 +38,12 @@ pub struct PrioritizedOrderStore<OrderPriorityType> {
 
     /// Orders waiting for an account to reach a particular nonce.
     pending_orders: HashMap<AccountNonce, Vec<OrderId>>,
+    /// Storage slots written by orders already added to the block this round (monotonic).
+    /// Used to release bundles that asked to be attempted after one of their target slots is written.
+    written_slots: HashSet<SlotKey>,
+    /// Bundles waiting for one of their target storage slots to be written (blind backrunning).
+    /// A bundle is listed under every slot it targets and released as soon as any one is written.
+    pending_on_slot: HashMap<SlotKey, Vec<OrderId>>,
     /// Id -> order for all orders we manage. Carefully maintained by remove/insert
     orders: HashMap<OrderId, Arc<SimulatedOrder>>,
     /// Everything in orders
@@ -54,6 +61,8 @@ impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> 
             main_queue_nonces: HashMap::default(),
             onchain_nonces,
             pending_orders: HashMap::default(),
+            written_slots: HashSet::default(),
+            pending_on_slot: HashMap::default(),
             orders: HashMap::default(),
             orders_statistics: Default::default(),
         }
@@ -151,6 +160,46 @@ impl<OrderPriorityType: OrderPriority> PrioritizedOrderStore<OrderPriorityType> 
         }
     }
 
+    /// A bundle that targets storage slots is only ready once at least one of those slots has been
+    /// written this block. Orders without target slots are always slot-ready.
+    fn order_slots_available(&self, sim_order: &SimulatedOrder) -> bool {
+        let target = sim_order.order.target_storage_slots();
+        target.is_empty() || target.iter().any(|slot| self.written_slots.contains(slot))
+    }
+
+    /// Records the storage slots written by a freshly added order and releases any bundle that asked
+    /// to be attempted after one of its target slots was written (blind backrunning, issue #27).
+    /// Call this right after an order commits, with the slots that order wrote.
+    pub fn notify_slots_written(&mut self, written: &[SlotKey]) {
+        // Accumulate first so that released orders see the new writes as available.
+        let freshly_written = written
+            .iter()
+            .filter(|&slot| self.written_slots.insert(slot.clone()))
+            .cloned()
+            .collect::<Vec<_>>();
+        // Every unique bundle waiting on any of the newly written slots.
+        let released = freshly_written
+            .iter()
+            .filter_map(|slot| self.pending_on_slot.remove(slot))
+            .flatten()
+            .collect::<HashSet<OrderId>>();
+        let ready = released
+            .into_iter()
+            .filter_map(|id| {
+                let order = self.remove_from_orders(&id)?;
+                // OR-semantics: a bundle listed under several target slots is released by the first
+                // one written, so drop it from the buckets of its other (still unwritten) slots.
+                order.order.target_storage_slots().iter().for_each(|slot| {
+                    if let Some(bucket) = self.pending_on_slot.get_mut(slot) {
+                        bucket.retain(|other| *other != id);
+                    }
+                });
+                Some(order)
+            })
+            .collect::<Vec<_>>();
+        ready.into_iter().for_each(|order| self.insert_order(order));
+    }
+
     pub fn get_all_orders(&self) -> Vec<Arc<SimulatedOrder>> {
         self.orders.values().cloned().collect()
     }
@@ -195,7 +244,8 @@ impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
                 });
             }
         }
-        if pending_nonces.is_empty() {
+        let slots_ready = self.order_slots_available(&sim_order);
+        if pending_nonces.is_empty() && slots_ready {
             self.main_queue
                 .push(sim_order.id(), OrderPriorityType::new(sim_order.clone()));
             for nonce in sim_order.nonces() {
@@ -210,6 +260,19 @@ impl<OrderPriorityType: OrderPriority> SimulatedOrderSink
                 if !pending.contains(&sim_order.id()) {
                     pending.push(sim_order.id());
                 }
+            }
+            if !slots_ready {
+                let id = sim_order.id();
+                sim_order
+                    .order
+                    .target_storage_slots()
+                    .iter()
+                    .for_each(|slot| {
+                        let pending = self.pending_on_slot.entry(slot.clone()).or_default();
+                        if !pending.contains(&id) {
+                            pending.push(id);
+                        }
+                    });
             }
         }
         self.orders_statistics.add(&sim_order.order);

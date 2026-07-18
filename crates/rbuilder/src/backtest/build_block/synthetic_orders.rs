@@ -104,6 +104,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                 refund: None,
                 version: LAST_BUNDLE_VERSION,
                 external_hash: None,
+                target_storage_slots: Default::default(),
             };
             bundle.hash_slow();
             orders.push(OrdersWithTimestamp {

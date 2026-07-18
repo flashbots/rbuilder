@@ -22,7 +22,7 @@ use alloy_eips::{
 use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use alloy_rlp::Encodable as _;
 use derivative::Derivative;
-use evm_inspector::UsedStateTrace;
+use evm_inspector::{SlotKey, UsedStateTrace};
 use integer_encoding::VarInt;
 use reth_ethereum_primitives::{PooledTransactionVariant, Transaction, TransactionSigned};
 use reth_primitives_traits::{InMemorySize, Recovered, SignedTransaction as _, SignerRecoverable};
@@ -221,6 +221,14 @@ pub struct Bundle {
 
     /// Unique identifier for a bundle that was set by the sender of the bundle
     pub external_hash: Option<B256>,
+
+    /// Storage slots (contract address + slot key) this bundle wants to be attempted after.
+    /// The builder only tries to include the bundle once an order that writes one of these slots
+    /// has been added to the block, enabling blind backrunning and reducing wasted inclusion
+    /// attempts. An empty list means the bundle is unconditional.
+    /// Only supported on bundle version >= V2. Currently honored by the sequential ordering
+    /// builder; the parallel builder does not gate on target slots.
+    pub target_storage_slots: Vec<SlotKey>,
 }
 
 impl Bundle {
@@ -885,6 +893,15 @@ impl Order {
         match self {
             Order::Bundle(bundle) => bundle.block,
             Order::Tx(_) => None,
+        }
+    }
+
+    /// Storage slots this order asks to be attempted after (see [`Bundle::target_storage_slots`]).
+    /// Plain mempool txs never target slots.
+    pub fn target_storage_slots(&self) -> &[SlotKey] {
+        match self {
+            Order::Bundle(bundle) => &bundle.target_storage_slots,
+            Order::Tx(_) => &[],
         }
     }
 
