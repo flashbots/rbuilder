@@ -66,7 +66,7 @@ use std::{
 };
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 use tx_sim_cache::TxExecutionCache;
 
 pub mod bid_adjustments;
@@ -900,6 +900,31 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
                 nonce += 1;
             }
+        }
+
+        // flashbots/rbuilder#296: the proposer payout is sent from the builder
+        // coinbase, so the coinbase must hold at least the transferred value
+        // plus the gas the EVM locks up front (gas_limit * basefee, as the
+        // payout tx sets max_priority_fee_per_gas = 0 and max_fee_per_gas =
+        // basefee). If it does not, the payout tx is not sendable (in the
+        // limiting value-less case the floor is BASE_TX_GAS * basefee). Warn so
+        // the condition is visible up front rather than only as a downstream
+        // payout-tx revert. Checked after the refunds above, which also spend
+        // from the coinbase.
+        let builder_balance = fork
+            .state
+            .balance(builder_signer.address)
+            .map_err(CriticalCommitOrderError::Reth)?;
+        let payout_tx_cost =
+            proposer_payout_tx_cost(value, gas_limit, ctx.evm_env.block_env.basefee);
+        if builder_balance < payout_tx_cost {
+            warn!(
+                builder = %builder_signer.address,
+                %builder_balance,
+                %payout_tx_cost,
+                payout_value = %value,
+                "Builder coinbase balance is below the cost of the proposer payout tx; it will not be sendable"
+            );
         }
 
         let tx = create_payout_tx(
