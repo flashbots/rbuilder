@@ -82,7 +82,7 @@ reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.
 reth-node-core = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-primitives = { package = "reth-ethereum-primitives", git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
 reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0" }
-reth-primitives-traits = { version = "0.3.1", default-features = false }
+reth-primitives-traits = { version = "0.5.2", default-features = false }
 reth-provider = { git = "https://github.com/paradigmxyz/reth", tag = "v2.2.0", features = [
     "test-utils",
 ] }
