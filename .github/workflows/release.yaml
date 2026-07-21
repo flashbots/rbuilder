@@ -112,7 +112,7 @@ jobs:
           echo "skip=false" >> $GITHUB_OUTPUT
           echo "Building for platform: ${{ matrix.platform }}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.platform-check.outputs.skip != 'true'
 
       # Linux: Use Docker for reproducible builds
@@ -238,7 +238,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -282,7 +282,7 @@ jobs:
 
     steps:
       - name: checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download linux rbuilder binary
         id: download-binary
@@ -375,7 +375,7 @@ jobs:
 
     steps:
       - name: checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: docker buildx
         uses: docker/setup-buildx-action@v3
