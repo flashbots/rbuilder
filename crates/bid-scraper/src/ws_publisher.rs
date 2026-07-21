@@ -50,22 +50,23 @@ where
     }
 
     pub async fn run(self) {
+        let url = self.handler.url();
         if let Err(err) = self.run_with_error().await {
-            error!(err=?err, "UltrasoundWs failed");
+            error!(err=?err, url=%url, "WebSocket publisher failed");
         }
     }
 
     async fn run_with_error(self) -> eyre::Result<()> {
-        let mut request = self
-            .handler
-            .url()
+        let url = self.handler.url();
+        let mut request = url
+            .clone()
             .into_client_request()
             .wrap_err("Unable to create request")?;
         self.handler.configure_request(&mut request)?;
         let (ws_stream, _) = timeout(RPC_TIMEOUT, tokio_tungstenite::connect_async(request))
             .await
-            .wrap_err("timeout when connecting to ultrasound")?
-            .wrap_err("unable to connect to ultrasound")?;
+            .wrap_err_with(|| format!("timeout when connecting to {}", url))?
+            .wrap_err_with(|| format!("unable to connect to {}", url))?;
 
         let (mut write, mut read) = ws_stream.split();
         self.handler.init_connection(&mut write, &mut read).await?;
