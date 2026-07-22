@@ -428,14 +428,6 @@ pub struct ReservedPayout {
     pub base_fee: U256,
 }
 
-#[derive(Debug, Clone)]
-pub struct ShareBundleCommitResult {
-    pub bundle_ok: BundleOk,
-    pub coinbase_diff_before_payouts: U256,
-    pub total_payouts_promissed: U256,
-    pub payouts_promissed: HashMap<Address, ReservedPayout>,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum CriticalCommitOrderError {
     #[error("Reth error: {0}")]

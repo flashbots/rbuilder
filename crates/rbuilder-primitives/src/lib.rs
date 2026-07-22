@@ -143,7 +143,7 @@ pub struct Nonce {
     pub optional: bool,
 }
 
-/// Information regarding a new/update replaceable Bundle/ShareBundle.
+/// Information regarding a new/update replaceable Bundle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReplacementData<KeyType> {
     pub key: KeyType,

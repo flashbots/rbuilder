@@ -68,7 +68,6 @@ pub enum InclusionChange {
 pub enum ExtendedOrderId {
     Tx(B256),
     Bundle { uuid: Uuid, hash: B256 },
-    ShareBundle(B256),
 }
 
 impl ExtendedOrderId {
