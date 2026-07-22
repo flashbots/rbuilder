@@ -40,7 +40,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpsee::RpcModule;
 use order_input::{mempool_txs_detector::MempoolTxsDetector, ReplaceableOrderPoolCommand};
 use payload_events::{InternalPayloadId, MevBoostSlotDataGenerator};
-use rbuilder_primitives::{MempoolTx, Order, TransactionSignedEcRecoveredWithBlobs};
+use rbuilder_primitives::{MempoolTx, Order, OrderSource, TransactionSignedEcRecoveredWithBlobs};
 use reth::transaction_pool::{
     BlobStore, EthPooledTransaction, Pool, TransactionListenerKind, TransactionOrdering,
     TransactionPool, TransactionValidator,
@@ -554,7 +554,8 @@ async fn try_send_to_orderpool<V, T, S>(
         Ok(tx) => {
             let tx_hash = tx.hash();
             mempool_detector.add_tx(tx_hash);
-            let order = Order::Tx(MempoolTx::new(tx));
+            let mut order = Order::Tx(MempoolTx::new(tx));
+            order.set_source(OrderSource::Mempool);
             let command = ReplaceableOrderPoolCommand::Order(Arc::new(order));
             if let Err(e) = orderpool_sender.send(command).await {
                 mempool_detector.remove_tx(tx_hash);

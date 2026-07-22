@@ -4,7 +4,7 @@ use alloy_primitives::FixedBytes;
 use alloy_provider::{IpcConnect, Provider, ProviderBuilder};
 use futures::StreamExt;
 use rbuilder_primitives::{
-    serialize::TxEncoding, MempoolTx, Order, RawTransactionDecodable,
+    serialize::TxEncoding, MempoolTx, Order, OrderSource, RawTransactionDecodable,
     TransactionSignedEcRecoveredWithBlobs,
 };
 use std::{pin::pin, sync::Arc, time::Instant};
@@ -71,7 +71,8 @@ pub async fn subscribe_to_txpool_with_blobs(
                 }
             };
             let tx = MempoolTx::new(tx_with_blobs);
-            let order = Order::Tx(tx);
+            let mut order = Order::Tx(tx);
+            order.set_source(OrderSource::Mempool);
             let parse_duration = start.elapsed();
             trace!(order = ?order.id(), parse_duration_mus = parse_duration.as_micros(), "Mempool transaction received with blobs");
             add_txfetcher_time_to_query(parse_duration);
@@ -182,9 +183,11 @@ mod test {
         let pending_tx = provider.send_transaction(tx).await.unwrap();
         let recv_tx = receiver.recv().await.unwrap();
 
-        let tx_with_blobs = match recv_tx {
+        let (tx_with_blobs, source) = match recv_tx {
             ReplaceableOrderPoolCommand::Order(order) => match order.as_ref() {
-                Order::Tx(MempoolTx { tx_with_blobs }) => Some(tx_with_blobs.clone()),
+                Order::Tx(MempoolTx { tx_with_blobs }) => {
+                    Some((tx_with_blobs.clone(), order.source()))
+                }
                 _ => None,
             },
             _ => None,
@@ -193,6 +196,7 @@ mod test {
 
         assert_eq!(tx_with_blobs.hash(), *pending_tx.tx_hash());
         assert_eq!(tx_with_blobs.blobs_len(), 1);
+        assert_eq!(source, OrderSource::Mempool);
 
         // send another tx without blobs
         let tx = TransactionRequest::default()
