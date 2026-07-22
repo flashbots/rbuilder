@@ -2,7 +2,8 @@ use alloy_primitives::B256;
 use clap::Parser;
 use rbuilder_config::load_toml_config;
 use rbuilder_primitives::{
-    Bundle, MempoolTx, Metadata, Order, TransactionSignedEcRecoveredWithBlobs, LAST_BUNDLE_VERSION,
+    Bundle, MempoolTx, Metadata, Order, OrderSource, TransactionSignedEcRecoveredWithBlobs,
+    LAST_BUNDLE_VERSION,
 };
 use reth_provider::test_utils::MockNodeTypesWithDB;
 use std::sync::Arc;
@@ -99,6 +100,7 @@ impl<ConfigType: LiveBuilderConfig> SyntheticOrdersSource<ConfigType> {
                     is_system: false,
                     refund_identity: None,
                     disable_cross_region_sharing: false,
+                    source: OrderSource::Unknown,
                 },
                 dropping_tx_hashes: Default::default(),
                 refund: None,

@@ -11,7 +11,7 @@ use jsonrpsee::{
 };
 use rbuilder_primitives::{
     serialize::{RawBundle, RawBundleDecodeResult, RawTx, TxEncoding},
-    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId,
+    BundleReplacementData, BundleReplacementKey, MempoolTx, Order, OrderId, OrderSource,
 };
 use serde::Deserialize;
 use std::{
@@ -217,11 +217,14 @@ async fn handle_eth_send_bundle(
 }
 
 async fn send_order(
-    order: Order,
+    mut order: Order,
     channel: &mpsc::Sender<ReplaceableOrderPoolCommand>,
     timeout: Duration,
     received_at: OffsetDateTime,
 ) {
+    // Every order reaching this helper was submitted directly to the builder's
+    // RPC server: both eth_sendRawTransaction and eth_sendBundle funnel here.
+    order.set_source(OrderSource::RpcServer);
     send_command(
         ReplaceableOrderPoolCommand::Order(Arc::new(order)),
         channel,

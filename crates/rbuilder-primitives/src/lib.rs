@@ -41,6 +41,24 @@ use uuid::Uuid;
 
 use crate::serialize::TxEncoding;
 
+/// Where an [`Order`] entered the builder from.
+///
+/// The building algorithm can treat orders differently depending on how they
+/// arrived: transactions observed in the public mempool versus orders submitted
+/// directly to the builder's RPC server. See
+/// <https://github.com/flashbots/rbuilder/issues/122>.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum OrderSource {
+    /// Derived from a transaction observed in the public mempool.
+    Mempool,
+    /// Submitted directly to the builder's order-input RPC server
+    /// (`eth_sendRawTransaction` or `eth_sendBundle`).
+    RpcServer,
+    /// Origin not recorded, e.g. orders reconstructed during backtests or tests.
+    #[default]
+    Unknown,
+}
+
 /// Extra metadata for an order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Metadata {
@@ -52,6 +70,9 @@ pub struct Metadata {
     pub refund_identity: Option<Address>,
     /// `RawBundle` field, round-tripped through `Bundle`. Not consumed by rbuilder.
     pub disable_cross_region_sharing: bool,
+    /// Where the order entered the builder from. Defaults to
+    /// [`OrderSource::Unknown`].
+    pub source: OrderSource,
 }
 
 impl Default for Metadata {
@@ -73,6 +94,7 @@ impl Metadata {
             is_system: false,
             refund_identity: None,
             disable_cross_region_sharing: false,
+            source: OrderSource::Unknown,
         }
     }
 
@@ -102,6 +124,17 @@ impl Metadata {
         self.disable_cross_region_sharing = disable_cross_region_sharing;
         self
     }
+
+    /// Set the order source and return the metadata.
+    pub fn with_source(mut self, source: OrderSource) -> Self {
+        self.set_source(source);
+        self
+    }
+
+    /// Set the order source.
+    pub fn set_source(&mut self, source: OrderSource) {
+        self.source = source;
+    }
 }
 
 impl InMemorySize for Metadata {
@@ -109,7 +142,8 @@ impl InMemorySize for Metadata {
         mem::size_of::<time::OffsetDateTime>() + // received_at_timestamp
             mem::size_of::<Option<Address>>() + // refund_identity
             mem::size_of::<bool>() + // is_system
-            mem::size_of::<bool>() // disable_cross_region_sharing
+            mem::size_of::<bool>() + // disable_cross_region_sharing
+            mem::size_of::<OrderSource>() // source
     }
 }
 
@@ -902,6 +936,22 @@ impl Order {
             Order::Tx(tx) => &tx.tx_with_blobs.metadata,
         }
     }
+
+    /// Where this order entered the builder from (mempool vs RPC server).
+    pub fn source(&self) -> OrderSource {
+        self.metadata().source
+    }
+
+    /// Record where this order entered the builder from.
+    ///
+    /// [`Metadata`] is excluded from [`Order`] equality and hashing, so tagging
+    /// the source does not affect order identity or deduplication.
+    pub fn set_source(&mut self, source: OrderSource) {
+        match self {
+            Order::Bundle(bundle) => bundle.metadata.set_source(source),
+            Order::Tx(tx) => tx.tx_with_blobs.metadata.set_source(source),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -1224,6 +1274,68 @@ mod tests {
     use alloy_primitives::{fixed_bytes, Signature};
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
     use uuid::uuid;
+
+    #[test]
+    fn order_source_defaults_to_unknown() {
+        assert_eq!(OrderSource::default(), OrderSource::Unknown);
+        assert_eq!(Metadata::new_received_now().source, OrderSource::Unknown);
+    }
+
+    #[test]
+    fn metadata_set_source_round_trips() {
+        let with = Metadata::new_received_now().with_source(OrderSource::RpcServer);
+        assert_eq!(with.source, OrderSource::RpcServer);
+
+        let mut meta = Metadata::new_received_now();
+        meta.set_source(OrderSource::Mempool);
+        assert_eq!(meta.source, OrderSource::Mempool);
+    }
+
+    #[test]
+    /// Tagging an order's source must update `source()` for both variants while
+    /// leaving order identity untouched (`Metadata` is ignored by `Order` Eq/Hash).
+    fn order_set_source_tags_both_variants_without_changing_identity() {
+        let mut data = TestDataGenerator::default();
+
+        let tx_sender = AccountNonce {
+            nonce: 0,
+            account: data.create_address(),
+        };
+        let mut tx_order = data.create_tx_order(tx_sender);
+        assert_eq!(tx_order.source(), OrderSource::Unknown);
+        let original_tx = tx_order.clone();
+        tx_order.set_source(OrderSource::Mempool);
+        assert_eq!(tx_order.source(), OrderSource::Mempool);
+        assert_eq!(tx_order.id(), original_tx.id());
+        assert_eq!(tx_order, original_tx);
+
+        let bundle_tx = BundledTxInfo {
+            nonce: AccountNonce {
+                nonce: 0,
+                account: data.create_address(),
+            },
+            optional: false,
+        };
+        let mut bundle_order = data.create_bundle_multi_tx_order(1, &[bundle_tx], None);
+        assert_eq!(bundle_order.source(), OrderSource::Unknown);
+        let original_bundle = bundle_order.clone();
+        bundle_order.set_source(OrderSource::RpcServer);
+        assert_eq!(bundle_order.source(), OrderSource::RpcServer);
+        assert_eq!(bundle_order.id(), original_bundle.id());
+        assert_eq!(bundle_order, original_bundle);
+
+        // Metadata is excluded from Order's Hash as well: each tagged order hashes
+        // equal to its untagged original, so the two distinct orders collapse to
+        // exactly two entries in a HashSet.  Order carries interior-mutable blob
+        // state that its Hash impl deliberately ignores, so mutable_key_type is a
+        // false positive here.
+        #[allow(clippy::mutable_key_type)]
+        let deduped: std::collections::HashSet<Order> =
+            [tx_order, original_tx, bundle_order, original_bundle]
+                .into_iter()
+                .collect();
+        assert_eq!(deduped.len(), 2);
+    }
 
     #[test]
     /// A bundle with a single optional tx paying enough gas should be considered executable
