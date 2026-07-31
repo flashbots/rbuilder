@@ -71,6 +71,7 @@ use tx_sim_cache::TxExecutionCache;
 
 pub mod bid_adjustments;
 pub mod block_orders;
+pub mod builder_tx;
 pub mod builders;
 pub mod built_block_trace;
 pub mod cached_reads;
@@ -88,8 +89,9 @@ pub mod tracers;
 pub mod tx_sim_cache;
 
 pub use self::{
-    block_orders::*, builders::mock_block_building_helper::MockRootHasher, built_block_trace::*,
-    order_commit::*, payout_tx::*, sim::simulate_order, tracers::SimulationTracer,
+    block_orders::*, builder_tx::BuilderTransactions,
+    builders::mock_block_building_helper::MockRootHasher, built_block_trace::*, order_commit::*,
+    payout_tx::*, sim::simulate_order, tracers::SimulationTracer,
 };
 
 #[cfg(test)]
@@ -158,6 +160,10 @@ pub struct BlockBuildingContext {
     pub mempool_tx_detector: Arc<MempoolTxsDetector>,
     pub faster_finalize: bool,
     pub mev_blocker_price: U256,
+    /// Sources of the txs the builder appends at the end of the block, after the orders
+    /// and the accumulated refunds and before the proposer payout tx.
+    /// See [`crate::building::builder_tx::BuilderTransactions`].
+    pub builder_transactions: Vec<Arc<dyn BuilderTransactions>>,
     pub adjustment_fee_payers: ahash::HashSet<Address>,
     /// Cached from evm_env.block_env.number but as BlockNumber. Avoid conversions all over the code.
     block_number: BlockNumber,
@@ -260,6 +266,7 @@ impl BlockBuildingContext {
             mempool_tx_detector,
             faster_finalize,
             mev_blocker_price,
+            builder_transactions: Vec::new(),
             adjustment_fee_payers,
             block_number,
         })
@@ -345,9 +352,20 @@ impl BlockBuildingContext {
             mempool_tx_detector: Arc::new(MempoolTxsDetector::new()),
             faster_finalize: true,
             mev_blocker_price,
+            builder_transactions: Vec::new(),
             adjustment_fee_payers: Default::default(),
             block_number,
         }
+    }
+
+    /// Registers the sources of the txs the builder appends at the end of the block.
+    /// See [`crate::building::builder_tx::BuilderTransactions`].
+    pub fn with_builder_transactions(
+        mut self,
+        builder_transactions: Vec<Arc<dyn BuilderTransactions>>,
+    ) -> Self {
+        self.builder_transactions = builder_transactions;
+        self
     }
 
     pub fn max_blob_gas_per_block(&self) -> u64 {
@@ -599,6 +617,10 @@ pub enum InsertPayoutTxErr {
     CombinedRefundTxReverted,
     #[error("Payout tx reverted")]
     PayoutTxReverted,
+    #[error("Builder tx from {0} reverted")]
+    BuilderTxReverted(String),
+    #[error("Builder tx error: {0}")]
+    BuilderTxErr(#[from] crate::building::builder_tx::BuilderTransactionError),
     #[error("Signer error: {0}")]
     SignerError(#[from] secp256k1::Error),
     #[error("Tx error: {0}")]
@@ -900,6 +922,37 @@ impl<Tracer: SimulationTracer, PartialBlockExecutionTracerType: PartialBlockExec
 
                 nonce += 1;
             }
+
+            // Txs the builder adds for itself, after the refunds and before the payout tx.
+            // They are committed outside the region undone by a finalization adjustment
+            // (see adjust_finalize_block_revert_to_prefinalized_state), so they are built
+            // once and then survive every reseal of the block, exactly like the refunds.
+            nonce = ctx.builder_transactions.iter().try_fold(
+                nonce,
+                |nonce, builder_txs| -> Result<u64, InsertPayoutTxErr> {
+                    builder_txs.transactions(ctx, nonce)?.into_iter().try_fold(
+                        nonce,
+                        |nonce, builder_tx| {
+                            let committed = fork.commit_tx(&builder_tx, self.space_state)??;
+                            committed
+                                .tx_info
+                                .receipt
+                                .success
+                                .then_some(())
+                                .ok_or_else(|| {
+                                    InsertPayoutTxErr::BuilderTxReverted(
+                                        builder_txs.name().to_string(),
+                                    )
+                                })
+                                .map(|()| {
+                                    self.space_state.use_space(committed.space_used());
+                                    self.executed_tx_infos.push(committed.tx_info);
+                                    nonce + 1
+                                })
+                        },
+                    )
+                },
+            )?;
         }
 
         let tx = create_payout_tx(

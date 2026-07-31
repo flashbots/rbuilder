@@ -214,7 +214,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::building::{
         builders::mock_block_building_helper::MockRootHasher,
@@ -230,8 +230,12 @@ mod tests {
     use revm::primitives::hardfork::SpecId;
     use std::sync::Arc;
 
-    fn setup(
+    /// Test context whose fee recipient is `proposer`. When `proposer_has_code` the
+    /// proposer is a contract, which is what forces the slow payout gas estimation path.
+    /// The builder signer is always funded so it can pay for the txs it signs.
+    pub(crate) fn setup(
         tx_gas_limit_cap: Option<u64>,
+        proposer_has_code: bool,
     ) -> (Address, BlockBuildingContext, BlockState<CachedDB>) {
         let signer = Signer::random();
         let proposer = Address::random();
@@ -252,7 +256,19 @@ mod tests {
                 Account {
                     balance: U256::ZERO,
                     nonce: 1,
-                    bytecode_hash: Some(B256::random()),
+                    bytecode_hash: proposer_has_code.then(B256::random),
+                },
+            )
+            .unwrap();
+        // Fund the builder so it can pay for the txs it signs itself.
+        provider_rw
+            .tx_ref()
+            .put::<tables::PlainAccountState>(
+                signer.address,
+                Account {
+                    balance: U256::from(10u64).pow(U256::from(18u64)),
+                    nonce: 0,
+                    bytecode_hash: None,
                 },
             )
             .unwrap();
@@ -290,7 +306,7 @@ mod tests {
     #[test]
     fn estimate_payout_tx_gas_limit() {
         // Pre Fusaka block: no per-tx cap.
-        let (proposer, ctx, mut state) = setup(None);
+        let (proposer, ctx, mut state) = setup(None, true);
 
         let empty_block = estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
         assert_matches!(empty_block, Ok(_));
@@ -306,7 +322,7 @@ mod tests {
         assert_matches!(full_block, Err(_));
 
         // Post Fusaka block: EIP-7825 caps one tx at 16,777,216 gas
-        let (proposer, ctx, mut state) = setup(Some(16_777_216));
+        let (proposer, ctx, mut state) = setup(Some(16_777_216), true);
 
         let empty_block = estimate_payout_gas_limit(proposer, &ctx, &mut state, BlockSpace::ZERO);
         assert_matches!(empty_block, Ok(_));

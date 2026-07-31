@@ -9,13 +9,17 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     building::{
-        builders::BuiltBlockId, cached_reads::CachedDB, estimate_payout_gas_limit,
-        journal::JournalSequenceNumber, tracers::GasUsedSimulationTracer, BlockBuildingContext,
-        BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError, CriticalCommitOrderError,
-        EstimatePayoutGasErr, ExecutionError, ExecutionResult, FinalizeAdjustmentState,
-        FinalizeError, FinalizeResult, FinalizeRevertStateCurrentIteration,
-        NullPartialBlockExecutionTracer, PartialBlock, PartialBlockExecutionTracer,
-        ThreadBlockBuildingContext,
+        builder_tx::{reserve_end_of_block, BuilderTransactionError},
+        builders::BuiltBlockId,
+        cached_reads::CachedDB,
+        estimate_payout_gas_limit,
+        journal::JournalSequenceNumber,
+        tracers::GasUsedSimulationTracer,
+        BlockBuildingContext, BlockSpace, BlockState, BuiltBlockTrace, BuiltBlockTraceError,
+        CriticalCommitOrderError, EstimatePayoutGasErr, ExecutionError, ExecutionResult,
+        FinalizeAdjustmentState, FinalizeError, FinalizeResult,
+        FinalizeRevertStateCurrentIteration, NullPartialBlockExecutionTracer, PartialBlock,
+        PartialBlockExecutionTracer, ThreadBlockBuildingContext,
     },
     live_builder::block_output::bidding_service_interface::CompetitionBidContext,
     provider::StateProviderSource,
@@ -157,6 +161,13 @@ pub struct BlockBuildingHelperFromProvider<
     partial_block: PartialBlock<GasUsedSimulationTracer, PartialBlockExecutionTracerType>,
     /// Gas reserved for the final payout txs from coinbase to fee recipient.
     payout_tx_gas: u64,
+    /// Gas reserved for everything the builder appends at the end of the block: the
+    /// payout tx plus the registered [`crate::building::builder_tx::BuilderTransactions`].
+    /// Equal to payout_tx_gas when no builder txs are registered.
+    end_of_block_gas: u64,
+    /// Value the registered builder txs will move out of the builder account, which is
+    /// also what pays the proposer. Zero when no builder txs are registered.
+    end_of_block_value: U256,
     /// Name of the builder that pregenerated this block.
     /// Might be ambiguous if several building parts were involved...
     builder_name: String,
@@ -178,6 +189,8 @@ pub enum BlockBuildingHelperError {
     ProviderError(#[from] reth_errors::ProviderError),
     #[error("Unable estimate payout gas: {0}")]
     UnableToEstimatePayoutGas(#[from] EstimatePayoutGasErr),
+    #[error("Builder tx error: {0}")]
+    BuilderTransaction(#[from] BuilderTransactionError),
     #[error("pre_block_call failed")]
     PreBlockCallFailed,
     #[error("InsertPayoutTxErr while finishing block: {0}")]
@@ -282,8 +295,19 @@ impl<
             &mut block_state,
             BlockSpace::ZERO,
         )?;
-        partial_block.reserve_block_space(payout_tx_space);
         let payout_tx_gas = payout_tx_space.gas;
+        // Everything the builder itself puts at the end of the block: the payout tx plus
+        // whatever the registered BuilderTransactions ask for. Reserved as one block so
+        // filling the block with orders can never eat into it.
+        let end_of_block = reserve_end_of_block(
+            &building_ctx.builder_transactions,
+            &building_ctx,
+            &mut block_state,
+            payout_tx_space,
+        )?;
+        partial_block.reserve_block_space(end_of_block.space);
+        let end_of_block_gas = end_of_block.space.gas;
+        let end_of_block_value = end_of_block.value;
 
         let mut built_block_trace =
             BuiltBlockTrace::new(built_block_id, next_journal_sequence_number);
@@ -294,6 +318,8 @@ impl<
             block_state,
             partial_block,
             payout_tx_gas,
+            end_of_block_gas,
+            end_of_block_value,
             builder_name,
             building_ctx,
             built_block_trace,
@@ -597,7 +623,9 @@ impl<
     fn true_block_value(&self) -> Result<U256, BlockBuildingHelperError> {
         Ok(self
             .partial_block
-            .get_proposer_payout_tx_value(self.payout_tx_gas, &self.building_ctx)?)
+            .get_proposer_payout_tx_value(self.end_of_block_gas, &self.building_ctx)?
+            .checked_sub(self.end_of_block_value)
+            .ok_or(crate::building::InsertPayoutTxErr::ProfitTooLow)?)
     }
 
     fn finalize_block(
@@ -638,6 +666,8 @@ impl<
             block_state,
             partial_block: self.partial_block.clone(),
             payout_tx_gas: self.payout_tx_gas,
+            end_of_block_gas: self.end_of_block_gas,
+            end_of_block_value: self.end_of_block_value,
             builder_name: self.builder_name.clone(),
             building_ctx: self.building_ctx.clone(),
             built_block_trace: self.built_block_trace.clone(),
