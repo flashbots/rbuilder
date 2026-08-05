@@ -44,6 +44,10 @@ jobs:
     steps:
       - name: Extract version
         id: extract_version
+        env:
+          BUILD_LINUX: ${{ github.event.inputs.build-linux || 'true' }}
+          BUILD_MAC: ${{ github.event.inputs.build-mac || 'true' }}
+          FEATURES: ${{ github.event.inputs.features || 'none' }}
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
@@ -61,9 +65,9 @@ jobs:
           echo "| \`GITHUB_REF\`      | \`${GITHUB_REF}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`GITHUB_SHA\`      | \`${GITHUB_SHA}\`      |" >> $GITHUB_STEP_SUMMARY
           echo "| \`VERSION\`         | \`${VERSION}\`         |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`BUILD_LINUX\`     | \`${{ github.event.inputs.build-linux || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`BUILD_MAC\`       | \`${{ github.event.inputs.build-mac || 'true' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`FEATURES\`        | \`${{ github.event.inputs.features || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_LINUX\`     | \`${BUILD_LINUX}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`BUILD_MAC\`       | \`${BUILD_MAC}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`FEATURES\`        | \`${FEATURES}\` |" >> $GITHUB_STEP_SUMMARY
 
   build-binary:
     name: Build binary (${{ matrix.target }})
@@ -294,9 +298,11 @@ jobs:
 
       - name: Check if binary was downloaded
         if: steps.download-binary.outcome != 'success'
+        env:
+          FEATURES_SUFFIX: ${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}
         run: |
           echo "⚠️ Binary artifact not found. Will build from source."
-          echo "Artifact name attempted: rbuilder-${{ env.VERSION }}-x86_64-unknown-linux-gnu${{ github.event.inputs.features && format('-{0}', github.event.inputs.features) || '' }}"
+          echo "Artifact name attempted: rbuilder-${VERSION}-x86_64-unknown-linux-gnu${FEATURES_SUFFIX}"
           echo "This is expected if build-binary job didn't run or Linux build was skipped."
 
       - name: Verify binary exists
