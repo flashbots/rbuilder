@@ -36,6 +36,7 @@ RUN set -eux; \
     rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
 
 RUN cargo install cargo-chef --version ^0.1
+RUN cargo install cargo-auditable@0.7.5 --locked
 
 
 ENV CARGO_HOME=/usr/local/cargo
@@ -72,14 +73,14 @@ ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
+    cargo auditable build --release --features="$FEATURES" --package=${RBUILDER_BIN}
 
 FROM builder AS test-relay
 ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES" --package=test-relay
+    cargo auditable build --release --features="$FEATURES" --package=test-relay
 
 
 # Runtime container for test-relay

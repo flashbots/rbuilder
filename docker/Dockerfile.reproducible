@@ -10,6 +10,7 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update && \
         libclang-dev \
         protobuf-compiler \
         cmake
+RUN cargo install cargo-auditable@0.7.5 --locked
 WORKDIR /build
 COPY . .
 RUN SOURCE_DATE=1730000000 make build && make build-deb

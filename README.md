@@ -175,6 +175,19 @@ $ sha256sum target/release/rbuilder
 d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
 ```
 
+### Auditable builds
+
+Release builds (`make build`, the Docker images, and the released binaries) go through
+[`cargo auditable`](https://github.com/rust-secure-code/cargo-auditable), which embeds the full
+dependency list into each binary. To scan the built binaries against the RustSec advisory database:
+
+```bash
+make audit-bin
+```
+
+The embedded data can also be picked up by scanners such as `trivy`, `grype`, `syft`. Meaning that container
+images built from these binaries can be scanned for Rust dependencies as well.
+
 ---
 
 ## Release Stability and Development Process
