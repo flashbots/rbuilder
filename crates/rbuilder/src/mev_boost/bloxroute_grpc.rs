@@ -14,6 +14,7 @@ use rbuilder_primitives::mev_boost::SubmitBlockRequest;
 use std::sync::Arc;
 
 /// Bloxroute gRPC types.
+#[allow(clippy::result_large_err)]
 pub mod types {
     tonic::include_proto!("bloxroute");
 }

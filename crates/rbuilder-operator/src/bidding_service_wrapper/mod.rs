@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 #[rustfmt::skip]
 pub mod bidding_service;
 pub mod client;
