@@ -161,13 +161,21 @@ jobs:
           if [[ -n "$FEATURES" ]]; then
             FEATURE_FLAG="--features $FEATURES"
           fi
-          cargo auditable build --profile ${{ matrix.profile }} $FEATURE_FLAG \
+          cargo auditable build --locked --profile ${{ matrix.profile }} $FEATURE_FLAG \
             --bin rbuilder \
             --bin rbuilder-operator \
             --bin tbv-bidding-service \
             --bin reth-rbuilder \
             --bin bid-scraper \
             --bin rbuilder-rebalancer
+
+      - name: Verify audit data embedded (Mac)
+        if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
+        run: |
+          for bin in rbuilder rbuilder-operator tbv-bidding-service reth-rbuilder bid-scraper rbuilder-rebalancer; do
+            otool -l "target/${{ matrix.profile }}/${bin}" | grep -q 'dep-v0' \
+              || { echo "ERROR: .dep-v0 audit section missing from ${bin}"; exit 1; }
+          done
 
       - name: Rename binaries
         if: steps.platform-check.outputs.skip != 'true'

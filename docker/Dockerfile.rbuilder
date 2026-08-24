@@ -74,6 +74,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo auditable build --release --features="$FEATURES" --package=${RBUILDER_BIN}
+RUN readelf -S /app/target/release/${RBUILDER_BIN} | grep -q '\.dep-v0' \
+    || { echo "ERROR: .dep-v0 audit section missing from ${RBUILDER_BIN}"; exit 1; }
 
 FROM builder AS test-relay
 ARG FEATURES
@@ -81,6 +83,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo auditable build --release --features="$FEATURES" --package=test-relay
+RUN readelf -S /app/target/release/test-relay | grep -q '\.dep-v0' \
+    || { echo "ERROR: .dep-v0 audit section missing from test-relay"; exit 1; }
 
 
 # Runtime container for test-relay

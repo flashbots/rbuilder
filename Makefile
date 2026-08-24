@@ -72,9 +72,12 @@ else
 endif
 
 # The cargo-auditable embedded data is sorted and timestamp-free
+CARGO_AUDITABLE_VERSION := 0.7.5
+
 .PHONY: install-cargo-auditable
 install-cargo-auditable:
-	@command -v cargo-auditable >/dev/null 2>&1 || cargo install cargo-auditable@0.7.5 --locked
+	@cargo install --list | grep -q '^cargo-auditable v$(CARGO_AUDITABLE_VERSION):' \
+		|| cargo install cargo-auditable@$(CARGO_AUDITABLE_VERSION) --locked
 
 .PHONY: build
 build: install-cargo-auditable ## Build (release version)
@@ -156,19 +159,27 @@ build-deb: build-deb-bid-scraper build-deb-rbuilder-operator build-deb-rbuilder-
 
 ##@ Dev
 
+CARGO_AUDIT_VERSION := 0.22.2
+
 .PHONY: install-cargo-audit
 install-cargo-audit:
-	@command -v cargo-audit >/dev/null 2>&1 || cargo install cargo-audit@0.22.2 --locked
+	@cargo install --list | grep -q '^cargo-audit v$(CARGO_AUDIT_VERSION):' \
+		|| cargo install cargo-audit@$(CARGO_AUDIT_VERSION) --locked
 
 .PHONY: audit-bin
-audit-bin: install-cargo-audit ## Scan built binaries for vulnerable dependencies (uses the audit data embedded by "make build")
-	@fail=0; \
+audit-bin: install-cargo-audit ## Scan built binaries for vulnerable dependencies
+	@scanned=0; fail=0; \
 	for bin in $(BUILD_OUTPUT_DIR)/*; do \
 		if [ -f "$$bin" ] && [ -x "$$bin" ]; then \
 			echo "==> $$bin"; \
 			cargo audit bin "$$bin" || fail=1; \
+			scanned=$$((scanned+1)); \
 		fi; \
 	done; \
+	if [ "$$scanned" -eq 0 ]; then \
+		echo "error: no binaries found in $(BUILD_OUTPUT_DIR), run 'make build' first"; \
+		exit 1; \
+	fi; \
 	exit $$fail
 
 .PHONY: lint

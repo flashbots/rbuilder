@@ -156,24 +156,24 @@ curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
 
 ### Reproducible builds
 
-You only need to set the `SOURCE_DATE_EPOCH` environment variable to ensure that the build is reproducible:
+On x86_64, `make build` produces reproducible binaries: it selects the `reproducible` build
+profile, sets `SOURCE_DATE_EPOCH` from the last commit timestamp, and applies the required
+compiler flags (see the Makefile). Building the same commit twice yields bit-identical binaries:
 
 ```bash
-# Use last commit timestamp as the build date
-$ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
-
 # build #1
-$ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+$ make build
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder-operator
 
 # build #2
-$ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+$ make clean && make build
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder-operator
+# both hashes match
 ```
+
+The released Linux artifacts are built this way inside a pinned-toolchain image
+([`docker/Dockerfile.reproducible`](./docker/Dockerfile.reproducible)), and reproducibility is
+re-verified periodically by the `reproducible-build-test` CI workflow.
 
 ### Auditable builds
 
@@ -185,7 +185,7 @@ dependency list into each binary. To scan the built binaries against the RustSec
 make audit-bin
 ```
 
-The embedded data can also be picked up by scanners such as `trivy`, `grype`, `syft`. Meaning that container
+The embedded data can also be picked up by scanners such as `trivy`, `grype`, and `syft`, so container
 images built from these binaries can be scanned for Rust dependencies as well.
 
 ---
