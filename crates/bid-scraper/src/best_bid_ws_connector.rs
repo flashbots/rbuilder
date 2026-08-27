@@ -85,6 +85,7 @@ impl<BestBidValueSinkType: BestBidValueSink> BestBidWSConnector<BestBidValueSink
     }
 }
 
+#[allow(clippy::result_large_err)]
 async fn connect<R>(request: R) -> Result<Connection, Error>
 where
     R: IntoClientRequest + Unpin,

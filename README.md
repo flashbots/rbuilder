@@ -156,24 +156,35 @@ curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
 
 ### Reproducible builds
 
-You only need to set the `SOURCE_DATE_EPOCH` environment variable to ensure that the build is reproducible:
+`make build` produces reproducible binaries on x86_64: it sets the `SOURCE_DATE_EPOCH`
+environment variable (last commit timestamp) and the required compiler flags automatically:
 
 ```bash
-# Use last commit timestamp as the build date
-$ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
-
 # build #1
 $ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+$ make build
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder
+<hash>  target/x86_64-unknown-linux-gnu/reproducible/rbuilder
 
 # build #2
 $ rm -rf target/
-$ cargo build --release
-$ sha256sum target/release/rbuilder
-d92ac33b94e16ed4a035b9dd52108fe78bd9bb160a91fced8e439f59b84c3207  target/release/rbuilder
+$ make build
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder
+<hash>  target/x86_64-unknown-linux-gnu/reproducible/rbuilder
+
+# the two hashes are identical
 ```
+
+### Auditable builds
+
+Release builds (`make build`, the Docker images, and the released binaries) go through
+[`cargo auditable`](https://github.com/rust-secure-code/cargo-auditable), which embeds the full
+dependency list into each binary. The embedded data can be read by scanners such as
+`cargo audit bin`, `trivy`, `grype`, and `syft`, so both the binaries and the container images
+built from them can be scanned for Rust dependencies.
+
+The pinned `cargo-auditable` version used by all build paths lives in
+[`.cargo-auditable-version`](./.cargo-auditable-version).
 
 ---
 

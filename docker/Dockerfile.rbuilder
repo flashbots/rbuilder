@@ -36,6 +36,10 @@ RUN set -eux; \
     rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
 
 RUN cargo install cargo-chef --version ^0.1
+COPY .cargo-auditable-version /tmp/cargo-auditable-version
+RUN v="$(cat /tmp/cargo-auditable-version)"; \
+    [ -n "$v" ] || { echo "ERROR: could not read cargo-auditable version from .cargo-auditable-version"; exit 1; }; \
+    cargo install cargo-auditable@"$v" --locked
 
 
 ENV CARGO_HOME=/usr/local/cargo
@@ -72,14 +76,18 @@ ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES" --package=${RBUILDER_BIN}
+    cargo auditable build --release --features="$FEATURES" --package=${RBUILDER_BIN}
+RUN readelf -S /app/target/release/${RBUILDER_BIN} | grep -q '\.dep-v0' \
+    || { echo "ERROR: .dep-v0 audit section missing from ${RBUILDER_BIN}"; exit 1; }
 
 FROM builder AS test-relay
 ARG FEATURES
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --features="$FEATURES" --package=test-relay
+    cargo auditable build --release --features="$FEATURES" --package=test-relay
+RUN readelf -S /app/target/release/test-relay | grep -q '\.dep-v0' \
+    || { echo "ERROR: .dep-v0 audit section missing from test-relay"; exit 1; }
 
 
 # Runtime container for test-relay

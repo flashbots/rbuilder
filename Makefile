@@ -71,21 +71,32 @@ else
     BUILD_ENV =
 endif
 
+# The cargo-auditable embedded data is sorted and timestamp-free
+CARGO_AUDITABLE_VERSION := $(shell cat $(dir $(firstword $(MAKEFILE_LIST)))/.cargo-auditable-version 2>/dev/null)
+ifeq ($(strip $(CARGO_AUDITABLE_VERSION)),)
+$(error could not read cargo-auditable version from .cargo-auditable-version)
+endif
+
+.PHONY: install-cargo-auditable
+install-cargo-auditable:
+	@cargo install --list | grep -qxF 'cargo-auditable v$(CARGO_AUDITABLE_VERSION):' \
+		|| cargo install cargo-auditable@$(CARGO_AUDITABLE_VERSION) --locked
+
 .PHONY: build
-build: ## Build (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE) --workspace
+build: install-cargo-auditable ## Build (release version)
+	$(BUILD_ENV) cargo auditable build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --profile $(BUILD_PROFILE) --workspace
 
 .PHONY: build-bid-scraper
-build-bid-scraper: ## Build the bid-scraper binary (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin bid-scraper --profile $(BUILD_PROFILE)
+build-bid-scraper: install-cargo-auditable ## Build the bid-scraper binary (release version)
+	$(BUILD_ENV) cargo auditable build --features "$(FEATURES)" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin bid-scraper --profile $(BUILD_PROFILE)
 
 .PHONY: build-rbuilder-operator
-build-rbuilder-operator: ## Build the rbuilder-operator binary (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
+build-rbuilder-operator: install-cargo-auditable ## Build the rbuilder-operator binary (release version)
+	$(BUILD_ENV) cargo auditable build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-operator --profile $(BUILD_PROFILE)
 
 .PHONY: build-rbuilder-rebalancer
-build-rbuilder-rebalancer: ## Build the rbuilder-rebalancer binary (release version)
-	$(BUILD_ENV) cargo build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-rebalancer --profile $(BUILD_PROFILE)
+build-rbuilder-rebalancer: install-cargo-auditable ## Build the rbuilder-rebalancer binary (release version)
+	$(BUILD_ENV) cargo auditable build --features "$(FEATURES) jemalloc-unprefixed" --locked $(if $(BUILD_TARGET),--target $(BUILD_TARGET)) --bin rbuilder-rebalancer --profile $(BUILD_PROFILE)
 
 .PHONY: build-dev
 build-dev: ## Build (debug version)
@@ -106,9 +117,10 @@ docker-image-test-relay: ## Build a test relay Docker image
 ##@ Debian Packages
 
 # Define binary paths for smart dependencies
-BID_SCRAPER_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/bid-scraper
-RBUILDER_OPERATOR_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/rbuilder-operator
-RBUILDER_REBALANCER_BIN := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)/rbuilder-rebalancer
+BUILD_OUTPUT_DIR := target/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(BUILD_PROFILE)
+BID_SCRAPER_BIN := $(BUILD_OUTPUT_DIR)/bid-scraper
+RBUILDER_OPERATOR_BIN := $(BUILD_OUTPUT_DIR)/rbuilder-operator
+RBUILDER_REBALANCER_BIN := $(BUILD_OUTPUT_DIR)/rbuilder-rebalancer
 
 .PHONY: install-cargo-deb
 install-cargo-deb:
