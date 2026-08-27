@@ -72,7 +72,7 @@ else
 endif
 
 # The cargo-auditable embedded data is sorted and timestamp-free
-CARGO_AUDITABLE_VERSION := $(shell cat .cargo-auditable-version)
+CARGO_AUDITABLE_VERSION := $(shell cat $(dir $(firstword $(MAKEFILE_LIST)))/.cargo-auditable-version 2>/dev/null)
 ifeq ($(strip $(CARGO_AUDITABLE_VERSION)),)
 $(error could not read cargo-auditable version from .cargo-auditable-version)
 endif
