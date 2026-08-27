@@ -188,6 +188,9 @@ make audit-bin
 The embedded data can also be picked up by scanners such as `trivy`, `grype`, and `syft`, so container
 images built from these binaries can be scanned for Rust dependencies as well.
 
+The pinned `cargo-auditable` and `cargo-audit` versions used by all build paths live in
+[`.tool-versions`](./.tool-versions).
+
 ---
 
 ## Release Stability and Development Process

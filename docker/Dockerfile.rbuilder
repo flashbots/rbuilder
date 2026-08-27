@@ -36,7 +36,8 @@ RUN set -eux; \
     rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
 
 RUN cargo install cargo-chef --version ^0.1
-RUN cargo install cargo-auditable@0.7.5 --locked
+COPY .tool-versions /tmp/.tool-versions
+RUN cargo install cargo-auditable@"$(awk '$1 == "cargo-auditable" {print $2}' /tmp/.tool-versions)" --locked
 
 
 ENV CARGO_HOME=/usr/local/cargo

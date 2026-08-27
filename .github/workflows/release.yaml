@@ -148,7 +148,8 @@ jobs:
 
       - name: Install cargo-auditable (Mac)
         if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'
-        run: cargo install cargo-auditable@0.7.5 --locked
+        run: |
+          cargo install cargo-auditable@"$(awk '$1 == "cargo-auditable" {print $2}' .tool-versions)" --locked
 
       - name: Build binaries (Mac)
         if: steps.platform-check.outputs.skip != 'true' && matrix.platform == 'mac'

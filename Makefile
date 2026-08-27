@@ -72,7 +72,7 @@ else
 endif
 
 # The cargo-auditable embedded data is sorted and timestamp-free
-CARGO_AUDITABLE_VERSION := 0.7.5
+CARGO_AUDITABLE_VERSION := $(shell awk '$$1 == "cargo-auditable" {print $$2}' .tool-versions)
 
 .PHONY: install-cargo-auditable
 install-cargo-auditable:
@@ -159,7 +159,7 @@ build-deb: build-deb-bid-scraper build-deb-rbuilder-operator build-deb-rbuilder-
 
 ##@ Dev
 
-CARGO_AUDIT_VERSION := 0.22.2
+CARGO_AUDIT_VERSION := $(shell awk '$$1 == "cargo-audit" {print $$2}' .tool-versions)
 
 .PHONY: install-cargo-audit
 install-cargo-audit:
