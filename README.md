@@ -156,40 +156,35 @@ curl http://localhost:5555/relay/v1/data/bidtraces/proposer_payload_delivered
 
 ### Reproducible builds
 
-On x86_64, `make build` produces reproducible binaries: it selects the `reproducible` build
-profile, sets `SOURCE_DATE_EPOCH` from the last commit timestamp, and applies the required
-compiler flags (see the Makefile). Building the same commit twice yields bit-identical binaries:
+`make build` produces reproducible binaries on x86_64: it sets the `SOURCE_DATE_EPOCH`
+environment variable (last commit timestamp) and the required compiler flags automatically:
 
 ```bash
 # build #1
+$ rm -rf target/
 $ make build
-$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder-operator
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder
+<hash>  target/x86_64-unknown-linux-gnu/reproducible/rbuilder
 
 # build #2
-$ make clean && make build
-$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder-operator
-# both hashes match
-```
+$ rm -rf target/
+$ make build
+$ sha256sum target/x86_64-unknown-linux-gnu/reproducible/rbuilder
+<hash>  target/x86_64-unknown-linux-gnu/reproducible/rbuilder
 
-The released Linux artifacts are built this way inside a pinned-toolchain image
-([`docker/Dockerfile.reproducible`](./docker/Dockerfile.reproducible)), and reproducibility is
-re-verified periodically by the `reproducible-build-test` CI workflow.
+# the two hashes are identical
+```
 
 ### Auditable builds
 
 Release builds (`make build`, the Docker images, and the released binaries) go through
 [`cargo auditable`](https://github.com/rust-secure-code/cargo-auditable), which embeds the full
-dependency list into each binary. To scan the built binaries against the RustSec advisory database:
+dependency list into each binary. The embedded data can be read by scanners such as
+`cargo audit bin`, `trivy`, `grype`, and `syft`, so both the binaries and the container images
+built from them can be scanned for Rust dependencies.
 
-```bash
-make audit-bin
-```
-
-The embedded data can also be picked up by scanners such as `trivy`, `grype`, and `syft`, so container
-images built from these binaries can be scanned for Rust dependencies as well.
-
-The pinned `cargo-auditable` and `cargo-audit` versions used by all build paths live in
-[`.tool-versions`](./.tool-versions).
+The pinned `cargo-auditable` version used by all build paths lives in
+[`.cargo-auditable-version`](./.cargo-auditable-version).
 
 ---
 

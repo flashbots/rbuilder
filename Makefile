@@ -72,11 +72,14 @@ else
 endif
 
 # The cargo-auditable embedded data is sorted and timestamp-free
-CARGO_AUDITABLE_VERSION := $(shell awk '$$1 == "cargo-auditable" {print $$2}' .tool-versions)
+CARGO_AUDITABLE_VERSION := $(shell cat .cargo-auditable-version)
+ifeq ($(strip $(CARGO_AUDITABLE_VERSION)),)
+$(error could not read cargo-auditable version from .cargo-auditable-version)
+endif
 
 .PHONY: install-cargo-auditable
 install-cargo-auditable:
-	@cargo install --list | grep -q '^cargo-auditable v$(CARGO_AUDITABLE_VERSION):' \
+	@cargo install --list | grep -qxF 'cargo-auditable v$(CARGO_AUDITABLE_VERSION):' \
 		|| cargo install cargo-auditable@$(CARGO_AUDITABLE_VERSION) --locked
 
 .PHONY: build
@@ -158,29 +161,6 @@ build-deb-rbuilder-rebalancer: install-cargo-deb $(RBUILDER_REBALANCER_BIN) ## B
 build-deb: build-deb-bid-scraper build-deb-rbuilder-operator build-deb-rbuilder-rebalancer ## Build all Debian packages
 
 ##@ Dev
-
-CARGO_AUDIT_VERSION := $(shell awk '$$1 == "cargo-audit" {print $$2}' .tool-versions)
-
-.PHONY: install-cargo-audit
-install-cargo-audit:
-	@cargo install --list | grep -q '^cargo-audit v$(CARGO_AUDIT_VERSION):' \
-		|| cargo install cargo-audit@$(CARGO_AUDIT_VERSION) --locked
-
-.PHONY: audit-bin
-audit-bin: install-cargo-audit ## Scan built binaries for vulnerable dependencies
-	@scanned=0; fail=0; \
-	for bin in $(BUILD_OUTPUT_DIR)/*; do \
-		if [ -f "$$bin" ] && [ -x "$$bin" ]; then \
-			echo "==> $$bin"; \
-			cargo audit bin "$$bin" || fail=1; \
-			scanned=$$((scanned+1)); \
-		fi; \
-	done; \
-	if [ "$$scanned" -eq 0 ]; then \
-		echo "error: no binaries found in $(BUILD_OUTPUT_DIR), run 'make build' first"; \
-		exit 1; \
-	fi; \
-	exit $$fail
 
 .PHONY: lint
 lint: ## Run the linters

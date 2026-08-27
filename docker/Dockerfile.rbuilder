@@ -36,8 +36,10 @@ RUN set -eux; \
     rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.8.2-${ARCH_TAG}
 
 RUN cargo install cargo-chef --version ^0.1
-COPY .tool-versions /tmp/.tool-versions
-RUN cargo install cargo-auditable@"$(awk '$1 == "cargo-auditable" {print $2}' /tmp/.tool-versions)" --locked
+COPY .cargo-auditable-version /tmp/cargo-auditable-version
+RUN v="$(cat /tmp/cargo-auditable-version)"; \
+    [ -n "$v" ] || { echo "ERROR: could not read cargo-auditable version from .cargo-auditable-version"; exit 1; }; \
+    cargo install cargo-auditable@"$v" --locked
 
 
 ENV CARGO_HOME=/usr/local/cargo
