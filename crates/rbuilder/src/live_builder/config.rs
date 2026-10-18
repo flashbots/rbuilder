@@ -290,6 +290,33 @@ impl L1Config {
         Ok(())
     }
 
+    /// Per-relay max bid caps from `[[relays]]` submit config (`max_bid_eth`).
+    pub fn relay_max_bids(&self) -> eyre::Result<HashMap<MevBoostRelayID, U256>> {
+        use alloy_primitives::utils::parse_ether;
+
+        let mut relay_configs = DEFAULT_RELAYS.clone();
+        for relay in self.relays.clone() {
+            relay_configs.insert(relay.name.clone(), relay);
+        }
+        let mut caps = HashMap::default();
+        for relay_name in self.relays_ids().relays().iter() {
+            let relay_config = relay_configs
+                .get(relay_name)
+                .ok_or_else(|| eyre::eyre!("Unknown relay {}", relay_name))?;
+            if let Some(submit_config) = &relay_config.submit_config {
+                if let Some(max_bid_eth) = &submit_config.max_bid_eth {
+                    caps.insert(
+                        relay_name.clone(),
+                        parse_ether(max_bid_eth).map_err(|e| {
+                            eyre::eyre!("Failed to parse max bid for {}: {}", relay_name, e)
+                        })?,
+                    );
+                }
+            }
+        }
+        Ok(caps)
+    }
+
     pub fn relays_ids(&self) -> RelaySet {
         let mut effective_enabled_relays: std::collections::HashSet<MevBoostRelayID> =
             self.enabled_relays.iter().cloned().collect();
@@ -521,9 +548,11 @@ impl LiveBuilderConfig for Config {
             &self.true_block_value_bidding_service_config,
         )?;
         let all_relays_set = self.l1_config.relays_ids();
+        let relay_max_bids = self.l1_config.relay_max_bids()?;
         let bidding_service = Arc::new(NewTrueBlockValueBiddingService::new(
             &parsed_config,
             all_relays_set.clone(),
+            &relay_max_bids,
         )?);
 
         let (wallet_balance_watcher, _) =

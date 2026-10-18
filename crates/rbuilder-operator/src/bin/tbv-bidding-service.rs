@@ -1,6 +1,6 @@
 //!Simple bidding service using NewTrueBlockValueBiddingService.
 
-use std::env;
+use std::{collections::HashMap, env};
 
 use rbuilder::live_builder::{
     block_output::{
@@ -64,8 +64,12 @@ async fn main() -> eyre::Result<()> {
             Box<dyn rbuilder_operator::bidding_service_wrapper::server::bidding_service_with_reload::BiddingServiceWithReload>,
             BiddingServiceFactoryError,
         > {
-            let bidding_service = NewTrueBlockValueBiddingService::new(&parsed_config, RelaySet::new(all_relays.to_vec())).
-                map_err(|_| BiddingServiceFactoryError::UnableToCreateBiddingService)?;
+            let bidding_service = NewTrueBlockValueBiddingService::new(
+                &parsed_config,
+                RelaySet::new(all_relays.to_vec()),
+                &HashMap::new(),
+            )
+                .map_err(|_| BiddingServiceFactoryError::UnableToCreateBiddingService)?;
             Ok(Box::new(NotReloadingBiddingServiceWithReload::new(Box::new(bidding_service))))
         };
     let version = rbuilder_version();
