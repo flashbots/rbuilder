@@ -519,20 +519,30 @@ where
     P: StateProviderFactory,
 {
     if let Some(header) = provider.header(&parent_hash)? {
-        Ok(header)
-    } else {
-        let current_parent_hash = provider
-            .header_by_number(block.checked_sub(1).unwrap_or(1))?
-            .map(|h| h.hash_slow());
-        info!(
-            block,
-            ?parent_hash,
-            ?current_parent_hash,
-            payload_id,
-            "Payload parent header not found, trying again"
-        );
-        Err(eyre::eyre!("Block header not found"))
+        return Ok(header);
     }
+
+    let parent_header = block
+        .checked_sub(1)
+        .map(|parent_block| provider.header_by_number(parent_block))
+        .transpose()?
+        .flatten();
+
+    let current_parent_hash = parent_header.as_ref().map(|h| h.hash_slow());
+    if let Some(header) = parent_header {
+        if current_parent_hash == Some(parent_hash) {
+            return Ok(header);
+        }
+    }
+
+    info!(
+        block,
+        ?parent_hash,
+        ?current_parent_hash,
+        payload_id,
+        "Payload parent header not found, trying again"
+    );
+    Err(eyre::eyre!("Block header not found"))
 }
 
 /// Attempts to forward a [`Recovered<TransactionSigned>`] to an orderpool.
@@ -641,5 +651,122 @@ async fn shutdown_builder(
             remaining_non_critical_tasks = non_critical_tasks.len(),
             "No critical tasks remaining, shutting down",
         );
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_consensus::Header;
+    use alloy_eips::BlockNumHash;
+    use alloy_primitives::{BlockHash, BlockNumber, B256};
+    use reth_errors::ProviderResult;
+    use reth_provider::StateProviderBox;
+    use std::sync::Mutex;
+
+    struct MockHeaderProvider {
+        header_by_hash: Mutex<Option<(BlockHash, Header)>>,
+        header_by_number: Mutex<Option<(u64, Header)>>,
+    }
+
+    impl MockHeaderProvider {
+        fn new() -> Self {
+            Self {
+                header_by_hash: Mutex::new(None),
+                header_by_number: Mutex::new(None),
+            }
+        }
+    }
+
+    impl StateProviderFactory for MockHeaderProvider {
+        fn latest(&self) -> ProviderResult<StateProviderBox> {
+            unimplemented!()
+        }
+        fn history_by_block_number(&self, _block: BlockNumber) -> ProviderResult<StateProviderBox> {
+            unimplemented!()
+        }
+        fn history_by_block_hash(&self, _block: BlockHash) -> ProviderResult<StateProviderBox> {
+            unimplemented!()
+        }
+        fn header(&self, block_hash: &BlockHash) -> ProviderResult<Option<Header>> {
+            let guard = self.header_by_hash.lock().unwrap();
+            if let Some((hash, ref header)) = *guard {
+                if hash == *block_hash {
+                    return Ok(Some(header.clone()));
+                }
+            }
+            Ok(None)
+        }
+        fn block_hash(&self, _number: BlockNumber) -> ProviderResult<Option<B256>> {
+            unimplemented!()
+        }
+        fn best_block_number(&self) -> ProviderResult<BlockNumber> {
+            unimplemented!()
+        }
+        fn header_by_number(&self, num: u64) -> ProviderResult<Option<Header>> {
+            let guard = self.header_by_number.lock().unwrap();
+            if let Some((n, ref header)) = *guard {
+                if n == num {
+                    return Ok(Some(header.clone()));
+                }
+            }
+            Ok(None)
+        }
+        fn last_block_number(&self) -> ProviderResult<BlockNumber> {
+            unimplemented!()
+        }
+        fn root_hasher(
+            &self,
+            _parent: BlockNumHash,
+        ) -> ProviderResult<Box<dyn crate::provider::RootHasher>> {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_try_to_read_block_header_hash_lookup() {
+        let mut header = Header::default();
+        header.number = 42;
+        let hash = header.hash_slow();
+
+        let provider = MockHeaderProvider::new();
+        *provider.header_by_hash.lock().unwrap() = Some((hash, header.clone()));
+
+        let result = try_to_read_block_header(43, hash, 1, &provider).unwrap();
+        assert_eq!(result.hash_slow(), hash);
+    }
+
+    #[test]
+    fn test_try_to_read_block_header_number_fallback() {
+        let mut header = Header::default();
+        header.number = 42;
+        let hash = header.hash_slow();
+
+        let provider = MockHeaderProvider::new();
+        *provider.header_by_number.lock().unwrap() = Some((42, header.clone()));
+
+        let result = try_to_read_block_header(43, hash, 1, &provider).unwrap();
+        assert_eq!(result.hash_slow(), hash);
+    }
+
+    #[test]
+    fn test_try_to_read_block_header_hash_mismatch() {
+        let mut header = Header::default();
+        header.number = 42;
+
+        let provider = MockHeaderProvider::new();
+        *provider.header_by_number.lock().unwrap() = Some((42, header));
+
+        let wrong_hash = B256::from([1u8; 32]);
+        let result = try_to_read_block_header(43, wrong_hash, 1, &provider);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_try_to_read_block_header_genesis_underflow() {
+        let provider = MockHeaderProvider::new();
+        let result = try_to_read_block_header(0, B256::ZERO, 1, &provider);
+        assert!(result.is_err());
     }
 }
