@@ -564,7 +564,7 @@ impl Trie {
                                 next_node: orphan_next,
                             },
                         ) => {
-                            // parent extension absorbs orphan extenion into itself
+                            // parent extension absorbs orphan extension into itself
                             let new_ext_key =
                                 self.merge_keys(parent_key, orphan_nibble, orphan_key);
                             self.nodes[current_node] = DiffTrieNode::Extension {
