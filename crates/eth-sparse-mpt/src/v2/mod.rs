@@ -531,7 +531,7 @@ impl RootHashCalculator {
                 }
             }
         }
-        // this way we alway process reverts first
+        // this way we always process reverts first
         if !storage_calc.missing_nodes.is_empty() {
             return Ok(false);
         }
@@ -819,7 +819,7 @@ impl RootHashCalculator {
                 }
             }
         }
-        // this way we alway process reverts first
+        // this way we always process reverts first
         if !account_trie.missing_nodes.is_empty() {
             return Ok(false);
         }
